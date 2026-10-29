@@ -34,7 +34,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
+import { PRACTICE_CONCLUDE_TOOL, problemCallForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
@@ -255,8 +255,10 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					// hero of a conclude card is the modelSolution committed at POSE
 					// time — a record fold, enriched here so the card renders pure.
 					if (block.name === PRACTICE_CONCLUDE_TOOL) {
-						part.reveal = modelSolutionForConclude(messages, block.id);
-						part.problemInput = problemInputForConclude(messages, block.id);
+						const problem = problemCallForConclude(messages, block.id);
+						part.reveal = typeof problem?.input.modelSolution === "string" ? problem.input.modelSolution : undefined;
+						part.problemInput = problem?.input;
+						part.problemCallId = problem?.id;
 					}
 					rest.push(part);
 				}

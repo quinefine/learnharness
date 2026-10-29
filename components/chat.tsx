@@ -81,6 +81,7 @@ import {
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
+	practiceCompletionTransition,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
@@ -257,6 +258,23 @@ export function Chat({
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
 	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
+	const ankiAnswerEligibility = useRef({ chatId, ids: new Set<string>() });
+	if (ankiAnswerEligibility.current.chatId !== chatId) {
+		ankiAnswerEligibility.current = { chatId, ids: new Set<string>() };
+	}
+	const ankiNewAnswerIds = ankiAnswerEligibility.current.ids;
+	const ankiPracticeTracker = useRef<{ chatId: string; seen: Map<string, string>; newProblemIds: Set<string> } | null>(null);
+	const ankiNewPracticeIds = useMemo(() => {
+		if (!ankiPracticeTracker.current || ankiPracticeTracker.current.chatId !== chatId) {
+			ankiPracticeTracker.current = { chatId, seen: new Map(), newProblemIds: new Set() };
+		}
+		const tracker = ankiPracticeTracker.current;
+		const parts = messages.flatMap((message) => message.parts).filter((part) => part.type === "tool-conclude") as Parameters<typeof practiceCompletionTransition>[1];
+		const transition = practiceCompletionTransition(tracker.seen, parts);
+		tracker.seen = transition.current;
+		for (const id of transition.newProblemIds) tracker.newProblemIds.add(id);
+		return tracker.newProblemIds;
+	}, [messages, chatId]);
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
@@ -1586,7 +1604,9 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard key={part.toolCallId ?? pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} toolCallId={part.toolCallId}
+															autoSaveEligible={part.toolCallId ? ankiNewAnswerIds.has(part.toolCallId) : false}
+															onConsumeAutoSave={() => { if (part.toolCallId) ankiNewAnswerIds.delete(part.toolCallId); }} />
 															);
 														}
 														return null;
@@ -1605,7 +1625,13 @@ export function Chat({
 														// registry — add renderers there, not here.
 														if (part.type.startsWith("tool-")) {
 															const Renderer = artifactRenderers[part.type.slice("tool-".length)];
-															if (Renderer) return <Renderer key={pi} part={part as ArtifactPartProps["part"]} />;
+															if (Renderer) {
+							const artifact = part as ArtifactPartProps["part"];
+							const problemId = artifact.problemCallId;
+							return <Renderer key={artifact.toolCallId} part={artifact} chatId={chatId}
+								autoSaveEligible={problemId ? ankiNewPracticeIds.has(problemId) : false}
+								onConsumeAutoSave={() => { if (problemId) ankiNewPracticeIds.delete(problemId); }} />;
+						}
 														}
 														return null;
 													}
@@ -1754,6 +1780,7 @@ export function Chat({
 						const reading = readingThinkingRef.current.trim() || undefined;
 						// The pending-id effect clears this only when the question
 						// actually leaves. An offline preflight keeps the draft visible.
+						ankiNewAnswerIds.add(pending.toolCallId);
 						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, pending.key);
 					}}
 				/>

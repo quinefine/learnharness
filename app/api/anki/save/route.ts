@@ -6,11 +6,17 @@ export const dynamic = "force-dynamic";
 /** Browser writes are same-origin only. Native/server callers without Origin remain supported. */
 function originAllowed(request: Request): boolean {
 	const site = request.headers.get("Sec-Fetch-Site");
-	if (site === "cross-site" || (site === "same-site" && !request.headers.get("Origin"))) return false;
+	if (site && site !== "same-origin" && site !== "none") return false;
 	const origin = request.headers.get("Origin");
 	if (!origin) return true;
 	try {
-		return new URL(origin).origin === new URL(request.url).origin;
+		const originUrl = new URL(origin);
+		const configuredOrigin = process.env.ANKI_PUBLIC_ORIGIN?.trim();
+		if (configuredOrigin) return originUrl.origin === new URL(configuredOrigin).origin;
+		// Host comes from the request target, not a spoofable forwarding header. If a proxy
+		// rewrites Host, set ANKI_PUBLIC_ORIGIN to the deployment's trusted public origin.
+		const publicHost = request.headers.get("Host") || new URL(request.url).host;
+		return originUrl.host === publicHost && (originUrl.protocol === new URL(request.url).protocol || site === "same-origin");
 	} catch {
 		return false;
 	}

@@ -304,10 +304,18 @@ export interface ChatListItem extends ChatSummary {
  * artifact (iframe / svg) when output-available.
  */
 export interface ArtifactPartProps {
+	/** Session identity for per-record actions such as Anki export. */
+	chatId?: string;
+	/** True only for a live completion transition, never for opening an old session. */
+	autoSaveEligible?: boolean;
+	/** Consume the one-shot transition after the card latches it. */
+	onConsumeAutoSave?: () => void;
 	part: {
 		type: string;
 		state: string;
 		toolCallId: string;
+		/** The pose identity joined onto a conclusion for stable per-problem actions. */
+		problemCallId?: string;
 		input?: unknown;
 		output?: unknown;
 		/** The pose-side fold (owner round 17): the whole problem-call

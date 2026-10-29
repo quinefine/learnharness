@@ -36,4 +36,64 @@ describe("Anki save route validation", () => {
 		}));
 		assert.equal(response.status, 415);
 	});
+
+	it("accepts the public browser origin through a reverse proxy", async () => {
+		const response = await POST(new Request("http://internal:3000/api/anki/save", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json; charset=utf-8",
+				Origin: "https://learn.example",
+				Host: "learn.example",
+				"Sec-Fetch-Site": "same-origin",
+			},
+			body: "{}",
+		}));
+		assert.equal(response.status, 400, "origin passed; schema validation then rejects the empty body");
+	});
+
+	it("ignores a spoofed X-Forwarded-Host", async () => {
+		const response = await POST(new Request("http://internal:3000/api/anki/save", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json", Origin: "https://attacker.example",
+				Host: "internal:3000", "X-Forwarded-Host": "attacker.example",
+			},
+			body: "{}",
+		}));
+		assert.equal(response.status, 403);
+	});
+
+	it("rejects a direct scheme mismatch", async () => {
+		const response = await POST(new Request("http://test/api/anki/save", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Origin: "https://test", Host: "test" },
+			body: "{}",
+		}));
+		assert.equal(response.status, 403);
+	});
+
+	it("supports an explicitly configured public origin when a proxy rewrites Host", async () => {
+		const previous = process.env.ANKI_PUBLIC_ORIGIN;
+		process.env.ANKI_PUBLIC_ORIGIN = "https://learn.example";
+		try {
+			const response = await POST(new Request("http://internal:3000/api/anki/save", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Origin: "https://learn.example", Host: "internal:3000" },
+				body: "{}",
+			}));
+			assert.equal(response.status, 400);
+		} finally {
+			if (previous === undefined) delete process.env.ANKI_PUBLIC_ORIGIN;
+			else process.env.ANKI_PUBLIC_ORIGIN = previous;
+		}
+	});
+
+	it("rejects a mismatched Origin even without Sec-Fetch-Site", async () => {
+		const response = await POST(new Request("http://test/api/anki/save", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Origin: "https://attacker.example", Host: "test" },
+			body: "{}",
+		}));
+		assert.equal(response.status, 403);
+	});
 });

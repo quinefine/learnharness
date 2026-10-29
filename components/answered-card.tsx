@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { AnkiSaveMenu } from "@/components/anki-save-menu";
 import type { QuestionAnswerData } from "@/src/core";
-import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import { answeredLessonSnapshot, answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -20,9 +21,22 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
+export function AnsweredCard({ answer: savedAnswer, input, chatId, toolCallId, autoSaveEligible = false, onConsumeAutoSave }: {
+	answer: QuestionAnswerData; input?: unknown; chatId?: string; toolCallId?: string; autoSaveEligible?: boolean;
+	onConsumeAutoSave?: () => void;
+}) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
+	const outcomeIdentity = `${chatId ?? ""}:${toolCallId ?? ""}`;
+	const newOutcome = useRef({ identity: outcomeIdentity, eligible: autoSaveEligible });
+	if (newOutcome.current.identity !== outcomeIdentity) {
+		newOutcome.current = { identity: outcomeIdentity, eligible: autoSaveEligible };
+	} else if (autoSaveEligible) {
+		newOutcome.current.eligible = true;
+	}
+	useEffect(() => {
+		if (autoSaveEligible) onConsumeAutoSave?.();
+	}, [autoSaveEligible, onConsumeAutoSave]);
 	if (answer.dismissed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
@@ -33,6 +47,10 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 
 	const isQuiz = answer.kind === "quiz";
 	const isExplain = answer.kind === "explain";
+	const ankiSnapshot = toolCallId ? answeredLessonSnapshot(answer, input, chatId, toolCallId) : null;
+	const autoSaveWhen = isQuiz && newOutcome.current.eligible
+		? answer.correct === true ? "correct" : answer.dontKnow || answer.correct === false ? "incorrect" : null
+		: null;
 	const selectedIdx = new Set(answer.answers.map((a) => a.index));
 	const correctIdx = new Set(answer.correctIndices ?? []);
 	// The question's own context rides the ORIGINAL CALL, not the answer
@@ -86,6 +104,9 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					) : (
 						<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">incorrect</span>
 					))}
+				{ankiSnapshot && (
+					<AnkiSaveMenu key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} autoSaveWhen={autoSaveWhen} className="ml-auto" />
+				)}
 			</div>
 			<div className="mb-3 font-medium">
 				<ToolContentResponse>{answer.questionText}</ToolContentResponse>

@@ -3,7 +3,8 @@
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { AnkiSaveButton } from "@/components/anki-save-button";
+import { AnkiSaveMenu } from "@/components/anki-save-menu";
+import { practiceSnapshot } from "@/src/core";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -59,18 +60,7 @@ export function PracticeDock({ chatId, problemCallId, input, expanded, onExpand,
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
 
-	const solution = input.modelSolution?.trim() ?? "";
-	const ankiSnapshot = solution ? {
-		sourceId: `learnharness:${chatId ?? "practice"}:${problemCallId}`,
-		kind: "practice" as const,
-		question: input.statement,
-		options: [],
-		answer: solution,
-		solution: "",
-		source: chatId ?? "LearnHarness practice",
-		mode: input.mode,
-		targets: input.target ?? [],
-	} : null;
+	const ankiSnapshot = practiceSnapshot(input, chatId, problemCallId);
 
 	useDictationTarget(
 		useCallback(
@@ -123,7 +113,10 @@ export function PracticeDock({ chatId, problemCallId, input, expanded, onExpand,
 			    markdown + LaTeX rendered, capped by the measured column
 			    (--dock-max-h; the old fixed 40vh cut long problems short). */}
 			<div data-dock-scroll-area="" className="max-h-[var(--dock-max-h,40vh)] overflow-y-auto px-4 pt-3 pb-2">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
+				<div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<span>Problem</span>
+					{ankiSnapshot && <AnkiSaveMenu key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} itemLabel="problem" />}
+				</div>
 				<div className="lh-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 				</div>
@@ -173,7 +166,6 @@ export function PracticeDock({ chatId, problemCallId, input, expanded, onExpand,
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 					</span>
-					{ankiSnapshot && <AnkiSaveButton key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} className="ml-2" />}
 					<Button
 						type="button"
 						data-testid="practice-send"

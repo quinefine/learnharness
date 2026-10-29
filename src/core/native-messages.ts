@@ -448,10 +448,10 @@ export function modelSolutionForConclude(
  * the card's collapsible "agent's data" drawer renders pure. Same walk
  * and refusal law as the reveal: a pose the record never acked (a
  * refused call) folds nothing. */
-export function problemInputForConclude(
+export function problemCallForConclude(
 	messages: readonly LhMessage[],
 	concludeCallId: string,
-): { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined {
+): { id: string; input: { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } } | undefined {
 	let mi = messages.findIndex(
 		(m) =>
 			(m as { role?: string }).role === "assistant" &&
@@ -469,12 +469,20 @@ export function problemInputForConclude(
 			const block = assistant.content[bi]!;
 			if (block.type !== "toolCall" || block.name !== PRACTICE_PROBLEM_TOOL) continue;
 			if (!clean.has(block.id)) continue; // a refused pose revealed nothing
-			return (block.arguments ?? undefined) as
+			const input = (block.arguments ?? undefined) as
 				| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
 				| undefined;
+			return input ? { id: block.id, input } : undefined;
 		}
 	}
 	return undefined;
+}
+
+export function problemInputForConclude(
+	messages: readonly LhMessage[],
+	concludeCallId: string,
+): { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined {
+	return problemCallForConclude(messages, concludeCallId)?.input;
 }
 
 export function activeProblemOf(

@@ -24,6 +24,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ThinkingBlock } from "@/components/thinking-block";
+import { AnkiSaveMenu } from "@/components/anki-save-menu";
+import { practiceAutoSaveKind, practiceSnapshot } from "@/src/core";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
@@ -55,16 +57,20 @@ export interface PracticeThinkingData {
 	text: string;
 }
 
-export function ProblemCard({ part }: ArtifactPartProps) {
+export function ProblemCard({ part, chatId }: ArtifactPartProps) {
 	// Always open, no chevron (owner round, 2026-10-05): the record IS the
 	// statement — same container + eyebrow discipline as the answered card
 	// and the dock (which mirrors this in Slice D). The commitment never
 	// renders — only the call's statement.
-	const input = (part.input ?? {}) as { statement?: string };
+	const input = (part.input ?? {}) as { statement?: string; modelSolution?: string; mode?: string; target?: string[] };
 	const statement = typeof input.statement === "string" ? input.statement : "";
+	const ankiSnapshot = practiceSnapshot(input, chatId, part.toolCallId);
 	return (
 		<div data-testid="problem-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
-			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
+			<div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Problem</span>
+				{ankiSnapshot && <AnkiSaveMenu key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} itemLabel="problem" />}
+			</div>
 			<div className="lh-prose text-[15px]">
 				<ToolContentResponse>{statement}</ToolContentResponse>
 			</div>
@@ -93,7 +99,17 @@ const OUTCOME_CHIP: Record<string, string> = {
 	dismissed: "bg-muted text-muted-foreground",
 };
 
-export function ConcludeCard({ part }: ArtifactPartProps) {
+export function ConcludeCard({ part, chatId, autoSaveEligible = false, onConsumeAutoSave }: ArtifactPartProps) {
+	const outcomeIdentity = `${chatId ?? ""}:${part.problemCallId ?? part.toolCallId}`;
+	const newOutcome = useRef({ identity: outcomeIdentity, eligible: autoSaveEligible });
+	if (newOutcome.current.identity !== outcomeIdentity) {
+		newOutcome.current = { identity: outcomeIdentity, eligible: autoSaveEligible };
+	} else if (autoSaveEligible) {
+		newOutcome.current.eligible = true;
+	}
+	useEffect(() => {
+		if (autoSaveEligible) onConsumeAutoSave?.();
+	}, [autoSaveEligible, onConsumeAutoSave]);
 	// The conclusion redesigned (owner round, 2026-10-05): the SOLUTION is
 	// the hero — the modelSolution committed at pose time (part.reveal, the
 	// view-seam join), shown verbatim, never re-authored. The verdict sits
@@ -105,6 +121,9 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
+	const problemInput = (part.problemInput ?? {}) as { statement?: unknown; modelSolution?: unknown; mode?: unknown; target?: unknown };
+	const ankiSnapshot = part.problemCallId ? practiceSnapshot(problemInput, chatId, part.problemCallId, reveal || undefined) : null;
+	const autoSaveWhen = newOutcome.current.eligible ? practiceAutoSaveKind(outcome) : null;
 
 	// The dismissal synthesis: no verdict, no reveal — one muted line (the
 	// learner clicked; the record needs only the fact).
@@ -127,6 +146,10 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					<span className={cn("rounded px-1.5 py-0.5", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
 						{OUTCOME_LABEL[outcome]}
 					</span>
+				)}
+				{ankiSnapshot && (
+					<AnkiSaveMenu key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} autoSaveWhen={autoSaveWhen}
+						itemLabel="problem" className="ml-auto" />
 				)}
 			</div>
 			{/* The verdict — plain prose under the heading, no 'Verdict:' label

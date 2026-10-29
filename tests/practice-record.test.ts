@@ -411,6 +411,7 @@ describe("modelSolutionForConclude (the conclusion's hero is the pose's commitme
 			mode: "recall",
 			modelSolution: "Show that…",
 		}, "mode + statement + the commitment; no targets posed here");
+		assert.equal(conclude!.problemCallId, "call_p1", "manual and automatic exports share the pose identity");
 	});
 });
 

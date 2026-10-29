@@ -7,7 +7,7 @@ import { finishDictation, isDictationActive, joinDictation, useDictationTarget }
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { AnkiSaveButton } from "@/components/anki-save-button";
+import { AnkiSaveMenu } from "@/components/anki-save-menu";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -37,7 +37,7 @@ import {
 	type QuizToolInput,
 	type SelectMode,
 	type Phase3,
-	type AnkiSaveInput,
+	lessonSnapshot,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 
@@ -326,22 +326,19 @@ function QuestionDockForm({
 		return q;
 	}, [toolCallId, kind, input]);
 
-	const ankiSnapshot = useMemo<AnkiSaveInput | null>(() => {
+	const ankiSnapshot = useMemo(() => {
 		const answer = kind === "quiz"
 			? (qd.correctIndices ?? []).map((index) => qd.options[index]?.label).filter((x): x is string => Boolean(x)).join(" | ")
 			: kind === "explain" ? (qd.committedAnswer ?? "") : "";
-		if (!answer.trim()) return null; // preference questions have no correct answer to review
-		return {
-			sourceId: `learnharness:${chatId ?? "question"}:${toolCallId}`,
-			kind: "lesson",
+		return lessonSnapshot({
+			chatId,
+			toolCallId,
 			question: qd.question + (qd.context ? `\n\n${qd.context}` : ""),
 			options: qd.options.map((option) => option.label),
 			answer,
 			solution: qd.explanation ?? "",
-			source: chatId ?? "LearnHarness lesson",
 			mode: qd.questionType ?? kind,
-			targets: [],
-		};
+		});
 	}, [chatId, kind, qd, toolCallId]);
 
 	// The selection state machine lives in question-core (pure, tested):
@@ -591,19 +588,22 @@ function QuestionDockForm({
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
 			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					{toolName === "probe"
-						? "Probe"
-						: toolName === "recall"
-							? "Recall"
-							: kind === "quiz"
-								? qd.questionType === "predict"
-									? "Prediction"
-									: "Check"
+				<div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<span>
+						{toolName === "probe"
+							? "Probe"
+							: toolName === "recall"
+								? "Recall"
+								: kind === "quiz"
+									? qd.questionType === "predict"
+										? "Prediction"
+										: "Check"
 									: kind === "explain"
 										? "Explain"
-											: "Question"}
-					{qd.mode === "multi-select" && " · select all that apply"}
+										: "Question"}
+						{qd.mode === "multi-select" && " · select all that apply"}
+					</span>
+					{ankiSnapshot && <AnkiSaveMenu key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} />}
 				</div>
 				<div className="mb-3 font-medium">
 					<ToolContentResponse>{qd.question}</ToolContentResponse>
@@ -943,8 +943,7 @@ function QuestionDockForm({
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
-						{ankiSnapshot && <AnkiSaveButton key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} className="ml-2" />}
-						<Button
+							<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"

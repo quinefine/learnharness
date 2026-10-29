@@ -2374,6 +2374,7 @@ function DockOverlay({
 						>
 							{pending ? (
 								<QuestionDock
+									chatId={chatId}
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
@@ -2390,8 +2391,9 @@ function DockOverlay({
 								/>
 							) : practice ? (
 								<PracticeDock
+									chatId={chatId}
 									problemCallId={practice.toolCallId}
-									input={practice.input as { statement: string }}
+									input={practice.input as { statement: string; modelSolution?: string; mode?: string; target?: string[] }}
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);

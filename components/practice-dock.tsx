@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { AnkiSaveButton } from "@/components/anki-save-button";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -30,11 +31,13 @@ import { cn } from "@/lib/utils";
  */
 
 export interface PracticeDockProps {
+	/** Session identity for selective Anki export. Optional for previews/tests. */
+	chatId?: string;
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
 	/** The pose's arguments — only the statement is the learner's (the
 	 *  mode badge would edge toward announcing the target; dropped). */
-	input: { statement: string };
+	input: { statement: string; modelSolution?: string; mode?: string; target?: string[] };
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
@@ -49,12 +52,25 @@ export interface PracticeDockProps {
 	compactionRunning?: boolean;
 }
 
-export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+export function PracticeDock({ chatId, problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
+
+	const solution = input.modelSolution?.trim() ?? "";
+	const ankiSnapshot = solution ? {
+		sourceId: `learnharness:${chatId ?? "practice"}:${problemCallId}`,
+		kind: "practice" as const,
+		question: input.statement,
+		options: [],
+		answer: solution,
+		solution: "",
+		source: chatId ?? "LearnHarness practice",
+		mode: input.mode,
+		targets: input.target ?? [],
+	} : null;
 
 	useDictationTarget(
 		useCallback(
@@ -157,6 +173,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 					</span>
+					{ankiSnapshot && <AnkiSaveButton key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} className="ml-2" />}
 					<Button
 						type="button"
 						data-testid="practice-send"

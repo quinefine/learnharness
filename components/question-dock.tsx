@@ -7,6 +7,7 @@ import { finishDictation, isDictationActive, joinDictation, useDictationTarget }
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { AnkiSaveButton } from "@/components/anki-save-button";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -36,6 +37,7 @@ import {
 	type QuizToolInput,
 	type SelectMode,
 	type Phase3,
+	type AnkiSaveInput,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 
@@ -60,6 +62,8 @@ import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-
  */
 
 export interface QuestionDockProps {
+	/** Session identity for selective Anki export. Optional for previews/tests. */
+	chatId?: string;
 	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
 	toolCallId: string;
 	input: QuizToolInput | AskToolInput | ExplainToolInput;
@@ -99,6 +103,7 @@ export interface QuestionDockProps {
 }
 
 export function QuestionDock({
+	chatId,
 	toolName,
 	toolCallId,
 	input,
@@ -157,6 +162,7 @@ export function QuestionDock({
 			)}
 			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
+					chatId={chatId}
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
@@ -254,6 +260,7 @@ export function QuestionDockBar({
 
 /** The expanded question: label, question, options, and the unified bottom row. */
 function QuestionDockForm({
+	chatId,
 	toolName,
 	toolCallId,
 	input,
@@ -318,6 +325,24 @@ function QuestionDockForm({
 		}
 		return q;
 	}, [toolCallId, kind, input]);
+
+	const ankiSnapshot = useMemo<AnkiSaveInput | null>(() => {
+		const answer = kind === "quiz"
+			? (qd.correctIndices ?? []).map((index) => qd.options[index]?.label).filter((x): x is string => Boolean(x)).join(" | ")
+			: kind === "explain" ? (qd.committedAnswer ?? "") : "";
+		if (!answer.trim()) return null; // preference questions have no correct answer to review
+		return {
+			sourceId: `learnharness:${chatId ?? "question"}:${toolCallId}`,
+			kind: "lesson",
+			question: qd.question + (qd.context ? `\n\n${qd.context}` : ""),
+			options: qd.options.map((option) => option.label),
+			answer,
+			solution: qd.explanation ?? "",
+			source: chatId ?? "LearnHarness lesson",
+			mode: qd.questionType ?? kind,
+			targets: [],
+		};
+	}, [chatId, kind, qd, toolCallId]);
 
 	// The selection state machine lives in question-core (pure, tested):
 	// single-select displaces, multi-select coexists — picking the ask
@@ -918,6 +943,7 @@ function QuestionDockForm({
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
+						{ankiSnapshot && <AnkiSaveButton key={ankiSnapshot.sourceId} snapshot={ankiSnapshot} className="ml-2" />}
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning}

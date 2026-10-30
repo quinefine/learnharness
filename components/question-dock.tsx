@@ -38,6 +38,8 @@ import {
 	type SelectMode,
 	type Phase3,
 	lessonSnapshot,
+	withAnkiDistractors,
+	type AnkiQuestionBank,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 
@@ -64,6 +66,7 @@ import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-
 export interface QuestionDockProps {
 	/** Session identity for selective Anki export. Optional for previews/tests. */
 	chatId?: string;
+	questionBank?: AnkiQuestionBank;
 	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
 	toolCallId: string;
 	input: QuizToolInput | AskToolInput | ExplainToolInput;
@@ -104,6 +107,7 @@ export interface QuestionDockProps {
 
 export function QuestionDock({
 	chatId,
+	questionBank = [],
 	toolName,
 	toolCallId,
 	input,
@@ -163,6 +167,7 @@ export function QuestionDock({
 			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
 					chatId={chatId}
+					questionBank={questionBank}
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
@@ -261,6 +266,7 @@ export function QuestionDockBar({
 /** The expanded question: label, question, options, and the unified bottom row. */
 function QuestionDockForm({
 	chatId,
+	questionBank = [],
 	toolName,
 	toolCallId,
 	input,
@@ -327,19 +333,21 @@ function QuestionDockForm({
 	}, [toolCallId, kind, input]);
 
 	const ankiSnapshot = useMemo(() => {
-		const answer = kind === "quiz"
-			? (qd.correctIndices ?? []).map((index) => qd.options[index]?.label).filter((x): x is string => Boolean(x)).join(" | ")
-			: kind === "explain" ? (qd.committedAnswer ?? "") : "";
-		return lessonSnapshot({
+		const correctLabels = kind === "quiz"
+			? (qd.correctIndices ?? []).map((index) => qd.options[index]?.label).filter((x): x is string => Boolean(x))
+			: kind === "explain" && qd.committedAnswer ? [qd.committedAnswer] : [];
+		const snapshot = lessonSnapshot({
 			chatId,
 			toolCallId,
 			question: qd.question + (qd.context ? `\n\n${qd.context}` : ""),
 			options: qd.options.map((option) => option.label),
-			answer,
+			answer: correctLabels.join(" | "),
+			correctAnswers: correctLabels,
 			solution: qd.explanation ?? "",
 			mode: qd.questionType ?? kind,
 		});
-	}, [chatId, kind, qd, toolCallId]);
+		return withAnkiDistractors(snapshot, questionBank);
+	}, [chatId, kind, qd, questionBank, toolCallId]);
 
 	// The selection state machine lives in question-core (pure, tested):
 	// single-select displaces, multi-select coexists — picking the ask

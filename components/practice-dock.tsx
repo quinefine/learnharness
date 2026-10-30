@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { AnkiSaveMenu } from "@/components/anki-save-menu";
-import { practiceSnapshot } from "@/src/core";
+import { practiceSnapshot, withAnkiDistractors, type AnkiQuestionBank } from "@/src/core";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 export interface PracticeDockProps {
 	/** Session identity for selective Anki export. Optional for previews/tests. */
 	chatId?: string;
+	questionBank?: AnkiQuestionBank;
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
 	/** The pose's arguments — only the statement is the learner's (the
@@ -53,14 +54,14 @@ export interface PracticeDockProps {
 	compactionRunning?: boolean;
 }
 
-export function PracticeDock({ chatId, problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+export function PracticeDock({ chatId, questionBank = [], problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
 
-	const ankiSnapshot = practiceSnapshot(input, chatId, problemCallId);
+	const ankiSnapshot = withAnkiDistractors(practiceSnapshot(input, chatId, problemCallId), questionBank);
 
 	useDictationTarget(
 		useCallback(

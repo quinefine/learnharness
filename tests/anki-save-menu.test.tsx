@@ -27,7 +27,7 @@ dom.window.HTMLElement.prototype.focus = function () { focusedElement = this; };
 
 const snapshot: AnkiSaveInput = {
 	sourceId: "learnharness:chat-1:quiz-1", kind: "lesson", question: "Q", options: ["A", "B"],
-	answer: "A", solution: "Why A", source: "chat-1", mode: "quiz", targets: [],
+	distractors: [], answer: "A", correctAnswers: ["A"], solution: "Why A", source: "chat-1", mode: "quiz", targets: [],
 };
 
 function keyEvent(key: string): Event {
@@ -173,6 +173,18 @@ describe("Anki options menu", () => {
 		assert.equal(requests.length, 1);
 		await act(async () => root.render(<AnsweredCard answer={{ ...answer, questionText: "Historical Q" }} input={{}} chatId="chat-1" toolCallId="quiz-old" autoSaveEligible={false} />));
 		assert.equal(requests.length, 1, "the old card cannot inherit the new answer's eligibility");
+	});
+
+	it("exports every eligible session item from one menu action", async () => {
+		const second = { ...snapshot, sourceId: "learnharness:chat-1:quiz-2", question: "Second Q" };
+		await act(async () => root.render(<AnkiSaveMenu sessionSnapshots={[snapshot, second]} />));
+		await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="anki-options"]')!.click(); });
+		const exportButton = document.body.querySelector<HTMLButtonElement>('[data-testid="save-to-anki"]')!;
+		assert.match(exportButton.textContent!, /Export all 2 items to Anki/);
+		await act(async () => { exportButton.click(); });
+		assert.equal(requests.length, 2);
+		assert.deepEqual(requests.map((request) => (request.body as AnkiSaveInput).sourceId), [snapshot.sourceId, second.sourceId]);
+		assert.match(document.body.textContent!, /Exported 2 of 2 items/);
 	});
 
 	it("moves focus into the menu, supports arrows, and restores focus on Escape", async () => {

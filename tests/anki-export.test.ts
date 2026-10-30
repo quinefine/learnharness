@@ -2,6 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
 	ankiAutoSaveSettings,
+	ankiDistractors,
+	ankiQuestionBank,
+	ankiSessionSnapshots,
 	answeredLessonSnapshot,
 	lessonSnapshot,
 	practiceAutoSaveKind,
@@ -39,6 +42,49 @@ describe("Anki export snapshots and preferences", () => {
 		assert.deepEqual(concluded, active);
 		assert.equal(active?.sourceId, "learnharness:chat-1:problem-1");
 		assert.equal(active?.answer, "A solid line.");
+	});
+
+	it("builds a real session question bank and ranks same-target distractors", () => {
+		const messages = [
+			{ parts: [{ type: "tool-quiz", toolCallId: "q1", input: {
+				question: "Connector?", options: [{ label: "Dashed arrow", value: "dashed" }], correctAnswer: "dashed",
+			} }] },
+			{ parts: [{ type: "tool-problem", toolCallId: "p1", input: {
+				statement: "Draw a link", modelSolution: "Solid line", mode: "recall", target: ["n_1"],
+			} }] },
+			{ parts: [{ type: "tool-problem", toolCallId: "p2", input: {
+				statement: "Draw another link", modelSolution: "Dotted line", mode: "recall", target: ["n_1"],
+			} }] },
+			{ parts: [{ type: "tool-explain", toolCallId: "e1", input: { question: "Long?", correctAnswer: "A long answer\nwith lines" } }] },
+		];
+		const bank = ankiQuestionBank(messages, "chat-1");
+		assert.equal(bank.length, 3, "long solutions do not become options");
+		const snapshot = practiceSnapshot({ statement: "Q", modelSolution: "Solid line", mode: "recall", target: ["n_1"] }, "chat-1", "p1")!;
+		assert.deepEqual(ankiDistractors(bank, snapshot), ["Dotted line", "Dashed arrow"]);
+		assert.ok(!ankiDistractors(bank, snapshot).includes("Solid line"), "the current answer is never a distractor");
+		const all = ankiSessionSnapshots(messages, "chat-1");
+		assert.equal(all.length, 4, "quiz, practice, and long-answer recall items export");
+		assert.deepEqual(all.find((item) => item.sourceId === snapshot.sourceId)?.distractors, ["Dotted line", "Dashed arrow"]);
+	});
+
+	it("uses graded quiz labels instead of an incorrect learner submission", () => {
+		const bank = ankiQuestionBank([{ parts: [{
+			type: "tool-quiz", toolCallId: "graded",
+			input: { question: "Pick one", options: [{ label: "Right" }, { label: "Wrong" }] },
+			output: { kind: "quiz", committed: "Wrong", correctIndices: [1], options: [{ index: 1, label: "Right" }, { index: 2, label: "Wrong" }] },
+		}] }]);
+		assert.deepEqual(bank.map((entry) => entry.answer), ["Right"]);
+	});
+
+	it("rejects substring collisions with answers and between distractors", () => {
+		const snapshot = practiceSnapshot({ statement: "Name it", modelSolution: "Solid line", target: ["n_1"] }, "chat-1", "current")!;
+		const distractors = ankiDistractors([
+			{ answer: "A solid line", sourceId: "other-1", mode: "practice", targets: ["n_1"], index: 0 },
+			{ answer: "Dotted line", sourceId: "other-2", mode: "practice", targets: ["n_1"], index: 1 },
+			{ answer: "Dotted line with arrow", sourceId: "other-3", mode: "practice", targets: ["n_1"], index: 2 },
+			{ answer: "Dashed arrow", sourceId: "other-4", mode: "practice", targets: ["n_1"], index: 3 },
+		], snapshot);
+		assert.deepEqual(distractors, ["Dotted line", "Dashed arrow"]);
 	});
 
 	it("defaults auto-save off and parses only explicit boolean preferences", () => {

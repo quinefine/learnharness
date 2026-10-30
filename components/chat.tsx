@@ -60,7 +60,8 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
+import { AnkiSaveMenu } from "@/components/anki-save-menu";
+import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing, AnkiQuestionBank } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -82,6 +83,8 @@ import {
 	toolQuestionKind,
 	questionNeedsReveal,
 	practiceCompletionTransition,
+	ankiQuestionBank,
+	ankiSessionSnapshots,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
@@ -275,6 +278,8 @@ export function Chat({
 		for (const id of transition.newProblemIds) tracker.newProblemIds.add(id);
 		return tracker.newProblemIds;
 	}, [messages, chatId]);
+	const ankiBank = useMemo(() => ankiQuestionBank(messages, chatId), [messages, chatId]);
+	const ankiExportItems = useMemo(() => ankiSessionSnapshots(messages, chatId), [messages, chatId]);
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
@@ -1391,6 +1396,7 @@ export function Chat({
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					<AnkiSaveMenu key={chatId} sessionSnapshots={ankiExportItems} />
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
 					{kind === "practice" ? (
@@ -1604,7 +1610,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={part.toolCallId ?? pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} toolCallId={part.toolCallId}
+																<AnsweredCard key={part.toolCallId ?? pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} toolCallId={part.toolCallId} questionBank={ankiBank}
 															autoSaveEligible={part.toolCallId ? ankiNewAnswerIds.has(part.toolCallId) : false}
 															onConsumeAutoSave={() => { if (part.toolCallId) ankiNewAnswerIds.delete(part.toolCallId); }} />
 															);
@@ -1628,7 +1634,7 @@ export function Chat({
 															if (Renderer) {
 							const artifact = part as ArtifactPartProps["part"];
 							const problemId = artifact.problemCallId;
-							return <Renderer key={artifact.toolCallId} part={artifact} chatId={chatId}
+							return <Renderer key={artifact.toolCallId} part={artifact} chatId={chatId} questionBank={ankiBank}
 								autoSaveEligible={problemId ? ankiNewPracticeIds.has(problemId) : false}
 								onConsumeAutoSave={() => { if (problemId) ankiNewPracticeIds.delete(problemId); }} />;
 						}
@@ -1711,6 +1717,7 @@ export function Chat({
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
+					questionBank={ankiBank}
 					onModelChange={setSelectedModel}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
@@ -1953,6 +1960,7 @@ function DockOverlay({
 	composer,
 	onSubmitAnswer,
 	chatId,
+	questionBank,
 	onModelChange,
 	onReserve,
 	plan,
@@ -1991,6 +1999,7 @@ function DockOverlay({
 	onSubmitAnswer: (output: QuestionAnswerData) => void;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
+	questionBank: AnkiQuestionBank;
 	onModelChange: (model: string | undefined) => void;
 	/** Reports the dock's settled height (block + gradient) — ChatView's
 	 *  dockReserve state feeds the transcript's spacer from it. */
@@ -2402,6 +2411,7 @@ function DockOverlay({
 							{pending ? (
 								<QuestionDock
 									chatId={chatId}
+									questionBank={questionBank}
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
@@ -2419,6 +2429,7 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									chatId={chatId}
+									questionBank={questionBank}
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string; modelSolution?: string; mode?: string; target?: string[] }}
 									expanded={expanded}

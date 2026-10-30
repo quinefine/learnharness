@@ -8,8 +8,8 @@ import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { AnkiSaveMenu } from "@/components/anki-save-menu";
-import type { QuestionAnswerData } from "@/src/core";
-import { answeredLessonSnapshot, answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import type { AnkiQuestionBank, QuestionAnswerData } from "@/src/core";
+import { answeredLessonSnapshot, answerForPresentation, parseAskInput, parseQuizInput, withAnkiDistractors } from "@/src/core";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -21,9 +21,9 @@ import { answeredLessonSnapshot, answerForPresentation, parseAskInput, parseQuiz
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input, chatId, toolCallId, autoSaveEligible = false, onConsumeAutoSave }: {
+export function AnsweredCard({ answer: savedAnswer, input, chatId, toolCallId, autoSaveEligible = false, onConsumeAutoSave, questionBank = [] }: {
 	answer: QuestionAnswerData; input?: unknown; chatId?: string; toolCallId?: string; autoSaveEligible?: boolean;
-	onConsumeAutoSave?: () => void;
+	onConsumeAutoSave?: () => void; questionBank?: AnkiQuestionBank;
 }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
@@ -47,7 +47,7 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, toolCallId, a
 
 	const isQuiz = answer.kind === "quiz";
 	const isExplain = answer.kind === "explain";
-	const ankiSnapshot = toolCallId ? answeredLessonSnapshot(answer, input, chatId, toolCallId) : null;
+	const ankiSnapshot = toolCallId ? withAnkiDistractors(answeredLessonSnapshot(answer, input, chatId, toolCallId), questionBank) : null;
 	const autoSaveWhen = isQuiz && newOutcome.current.eligible
 		? answer.correct === true ? "correct" : answer.dontKnow || answer.correct === false ? "incorrect" : null
 		: null;

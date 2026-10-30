@@ -6,7 +6,9 @@
  * save of the same question updates its note instead of creating a duplicate.
  */
 import { z } from "zod";
+import { ankiOptionEligible } from "../core/anki-export.ts";
 import type { AnkiSaveInput } from "../core/contracts/anki.ts";
+import { ANKI_TEMPLATE_VERSION, BACK, CSS, FRONT } from "./anki-card-template.ts";
 
 export const ANKI_MODEL = "LearnHarness Practice";
 export const ANKI_DECK = "LearnHarness";
@@ -17,7 +19,9 @@ export const ankiSaveSchema = z.object({
 	kind: z.enum(["lesson", "practice"]),
 	question: z.string().trim().min(1).max(100_000),
 	options: z.array(z.string().trim().min(1).max(10_000)).max(20).default([]),
+	distractors: z.array(z.string().trim().min(1).max(10_000)).max(100).default([]),
 	answer: z.string().trim().min(1).max(100_000),
+	correctAnswers: z.array(z.string().trim().min(1).max(10_000)).max(20).default([]),
 	solution: z.string().trim().max(100_000).default(""),
 	source: z.string().trim().min(1).max(500),
 	mode: z.string().trim().max(100).optional(),
@@ -39,14 +43,58 @@ export function plainHtml(text: string): string {
 		.replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/\r\n?/g, "\n").replace(/\n/g, "<br>");
 }
 
-export function optionsHtml(options: readonly string[]): string {
-	return options.map((option, i) => `<div class="lh-option"><span class="lh-key">${String.fromCharCode(65 + i)}</span> ${plainHtml(option)}</div>`).join("");
+function optionKey(text: string): string {
+	return text.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function nearDuplicate(a: string, b: string): boolean {
+	const left = optionKey(a);
+	const right = optionKey(b);
+	if (left === right) return true;
+	const [short, long] = left.length <= right.length ? [left, right] : [right, left];
+	return short.length >= 2 && long.includes(short);
+}
+
+/** One model supplies the option list and correct labels for every renderer. */
+export function optionModel(input: AnkiSaveInput): { v: 1; options: string[]; correct: string[]; multi: boolean } {
+	const correct: string[] = [];
+	for (const answer of input.correctAnswers.length ? input.correctAnswers : [input.answer]) {
+		const text = answer.trim();
+		if (text && !correct.some((existing) => optionKey(existing) === optionKey(text))) correct.push(text);
+	}
+	const correctKeys = new Set(correct.map(optionKey));
+	const options: string[] = [];
+	const add = (label: string, isCorrect: boolean) => {
+		const text = label.trim();
+		if (!text || options.some((option) => optionKey(option) === optionKey(text))) return;
+		if (!isCorrect && (correctKeys.has(optionKey(text)) || options.some((option) => nearDuplicate(option, text)))) return;
+		options.push(text);
+	};
+	for (const option of input.options) add(option, correctKeys.has(optionKey(option)));
+	// Free-form answers become MC only when the correct answer itself is concise.
+	const canGenerate = correct.every(ankiOptionEligible);
+	if (input.options.length > 0 || canGenerate) {
+		for (const answer of correct) add(answer, true);
+	}
+	if (canGenerate) {
+		for (const candidate of input.distractors) {
+			if (options.length >= 4) break;
+			add(candidate, false);
+		}
+	}
+	return { v: 1, options, correct, multi: correct.length > 1 && options.length > 1 };
+}
+
+export function optionsData(input: AnkiSaveInput): string {
+	return JSON.stringify(optionModel(input))
+		.replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")
+		.replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 }
 
 export function noteFields(input: AnkiSaveInput): Record<(typeof FIELDS)[number], string> {
 	return {
 		Question: plainHtml(input.question),
-		Options: optionsHtml(input.options),
+		Options: optionsData(input),
 		Answer: plainHtml(input.answer),
 		Solution: plainHtml(input.solution),
 		Source: plainHtml(input.source),
@@ -55,10 +103,6 @@ export function noteFields(input: AnkiSaveInput): Record<(typeof FIELDS)[number]
 		Targets: plainHtml(input.targets.join(", ")),
 	};
 }
-
-const FRONT = `<div class="lh-question">{{Question}}</div>{{#Options}}<div class="lh-options">{{Options}}</div>{{/Options}}`;
-const BACK = `{{FrontSide}}<hr><div class="lh-label">Answer</div><div class="lh-answer">{{Answer}}</div>{{#Solution}}<div class="lh-label">Solution</div><div class="lh-solution">{{Solution}}</div>{{/Solution}}<div class="lh-meta">{{Mode}} · {{Source}}</div>`;
-const CSS = `.card{font-family:system-ui,sans-serif;font-size:20px;line-height:1.5;padding:20px;color:var(--fg);background:var(--bg)}.lh-question{white-space:normal}.lh-options{margin-top:1rem;display:grid;gap:.55rem}.lh-option{padding:.65rem .8rem;border:1px solid #8886;border-radius:.6rem}.lh-key{font-weight:700;margin-right:.45rem}.lh-label{margin-top:1rem;color:var(--fg-faint);font-size:.75em;text-transform:uppercase;letter-spacing:.06em}.lh-answer{font-weight:650;margin-top:.3rem}.lh-solution{margin-top:.3rem}.lh-meta{margin-top:1.4rem;color:var(--fg-faint);font-size:.72em}@media(max-width:480px){.card{font-size:18px;padding:14px}}`;
 
 type Envelope = { result: unknown; error: string | null };
 
@@ -109,6 +153,36 @@ async function ensureDeckAndModel(endpoint: string): Promise<void> {
 				css: CSS,
 				cardTemplates: [{ Name: "Question → Answer", Front: FRONT, Back: BACK }],
 			}, endpoint);
+			return;
+		}
+		const templates = await ankiCall<Record<string, { Front: string; Back: string }>>("modelTemplates", { modelName: ANKI_MODEL }, endpoint);
+		const styling = await ankiCall<{ css: string }>("modelStyling", { modelName: ANKI_MODEL }, endpoint);
+		const current = templates["Question → Answer"];
+		let templateUpdated = false;
+		let stylingUpdated = false;
+		try {
+			if (!current?.Front.includes(ANKI_TEMPLATE_VERSION)) {
+				await ankiCall("updateModelTemplates", {
+					model: { name: ANKI_MODEL, templates: { "Question → Answer": { Front: FRONT, Back: BACK } } },
+				}, endpoint);
+				templateUpdated = true;
+			}
+			if (!styling.css.includes(ANKI_TEMPLATE_VERSION)) {
+				await ankiCall("updateModelStyling", { model: { name: ANKI_MODEL, css: CSS } }, endpoint);
+				stylingUpdated = true;
+			}
+		} catch (error) {
+			const rollbacks: Promise<unknown>[] = [];
+			if (templateUpdated && current) {
+				rollbacks.push(ankiCall("updateModelTemplates", {
+					model: { name: ANKI_MODEL, templates: { "Question → Answer": current } },
+				}, endpoint));
+			}
+			if (stylingUpdated) {
+				rollbacks.push(ankiCall("updateModelStyling", { model: { name: ANKI_MODEL, css: styling.css } }, endpoint));
+			}
+			await Promise.allSettled(rollbacks);
+			throw error;
 		}
 	})();
 	let tracked: Promise<void>;

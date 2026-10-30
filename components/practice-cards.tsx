@@ -25,7 +25,7 @@ import { createPortal } from "react-dom";
 
 import { ThinkingBlock } from "@/components/thinking-block";
 import { AnkiSaveMenu } from "@/components/anki-save-menu";
-import { practiceAutoSaveKind, practiceSnapshot } from "@/src/core";
+import { practiceAutoSaveKind, practiceSnapshot, withAnkiDistractors } from "@/src/core";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
@@ -57,14 +57,14 @@ export interface PracticeThinkingData {
 	text: string;
 }
 
-export function ProblemCard({ part, chatId }: ArtifactPartProps) {
+export function ProblemCard({ part, chatId, questionBank = [] }: ArtifactPartProps) {
 	// Always open, no chevron (owner round, 2026-10-05): the record IS the
 	// statement — same container + eyebrow discipline as the answered card
 	// and the dock (which mirrors this in Slice D). The commitment never
 	// renders — only the call's statement.
 	const input = (part.input ?? {}) as { statement?: string; modelSolution?: string; mode?: string; target?: string[] };
 	const statement = typeof input.statement === "string" ? input.statement : "";
-	const ankiSnapshot = practiceSnapshot(input, chatId, part.toolCallId);
+	const ankiSnapshot = withAnkiDistractors(practiceSnapshot(input, chatId, part.toolCallId), questionBank);
 	return (
 		<div data-testid="problem-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
 			<div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -99,7 +99,7 @@ const OUTCOME_CHIP: Record<string, string> = {
 	dismissed: "bg-muted text-muted-foreground",
 };
 
-export function ConcludeCard({ part, chatId, autoSaveEligible = false, onConsumeAutoSave }: ArtifactPartProps) {
+export function ConcludeCard({ part, chatId, autoSaveEligible = false, onConsumeAutoSave, questionBank = [] }: ArtifactPartProps) {
 	const outcomeIdentity = `${chatId ?? ""}:${part.problemCallId ?? part.toolCallId}`;
 	const newOutcome = useRef({ identity: outcomeIdentity, eligible: autoSaveEligible });
 	if (newOutcome.current.identity !== outcomeIdentity) {
@@ -122,7 +122,7 @@ export function ConcludeCard({ part, chatId, autoSaveEligible = false, onConsume
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
 	const problemInput = (part.problemInput ?? {}) as { statement?: unknown; modelSolution?: unknown; mode?: unknown; target?: unknown };
-	const ankiSnapshot = part.problemCallId ? practiceSnapshot(problemInput, chatId, part.problemCallId, reveal || undefined) : null;
+	const ankiSnapshot = part.problemCallId ? withAnkiDistractors(practiceSnapshot(problemInput, chatId, part.problemCallId, reveal || undefined), questionBank) : null;
 	const autoSaveWhen = newOutcome.current.eligible ? practiceAutoSaveKind(outcome) : null;
 
 	// The dismissal synthesis: no verdict, no reveal — one muted line (the

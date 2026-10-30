@@ -8,7 +8,9 @@ const input: AnkiSaveInput = {
 	kind: "practice",
 	question: "Why does 2 < 3?\nGive one reason.",
 	options: ["Because 2 is smaller", "Because 2 is larger"],
+	distractors: [],
 	answer: "Because 2 is smaller",
+	correctAnswers: ["Because 2 is smaller"],
 	solution: "Compare the integers.",
 	source: "chat-1",
 	mode: "recall",
@@ -17,7 +19,7 @@ const input: AnkiSaveInput = {
 
 type Call = { action: string; version: number; params: Record<string, unknown> };
 
-async function fakeAnki(delayFindMs = 0) {
+async function fakeAnki(delayFindMs = 0, existingModel = false, failStyling = false) {
 	const calls: Call[] = [];
 	const notes = new Map<string, { id: number; fields: Record<string, string>; tags: string[] }>();
 	let modelCreated = 0;
@@ -34,8 +36,12 @@ async function fakeAnki(delayFindMs = 0) {
 			switch (call.action) {
 				case "version": result = 6; break;
 				case "createDeck": result = 1; break;
-				case "modelNames": result = modelCreated ? ["LearnHarness Practice"] : []; break;
+				case "modelNames": result = modelCreated || existingModel ? ["LearnHarness Practice"] : []; break;
 				case "createModel": modelCreated++; result = 1; break;
+				case "modelTemplates": result = { "Question → Answer": { Front: "old", Back: "old" } }; break;
+				case "modelStyling": result = { css: "old" }; break;
+				case "updateModelTemplates": result = null; break;
+				case "updateModelStyling": if (failStyling) error = "style failed"; break;
 				case "findNotes": {
 					const encoded = String(p.query).match(/^SourceId:"((?:\\.|[^"])*)"$/)?.[1];
 					const source = encoded?.replace(/\\(["\\])/g, "$1");
@@ -101,6 +107,36 @@ describe("AnkiConnect save", () => {
 		}
 	});
 
+	it("upgrades an existing note type to the interactive template without adding fields", async () => {
+		const fake = await fakeAnki(0, true);
+		try {
+			await saveToAnki(input, fake.url);
+			assert.equal(fake.calls.filter((call) => call.action === "createModel").length, 0);
+			assert.equal(fake.calls.filter((call) => call.action === "updateModelTemplates").length, 1);
+			assert.equal(fake.calls.filter((call) => call.action === "updateModelStyling").length, 1);
+			const update = fake.calls.find((call) => call.action === "updateModelTemplates")!;
+			const model = update.params.model as { name: string; templates: Record<string, { Front: string; Back: string }> };
+			assert.equal(model.name, "LearnHarness Practice");
+			assert.ok(model.templates["Question → Answer"]!.Front.includes("lh-mc-v2"));
+		} finally {
+			await fake.close();
+		}
+	});
+
+	it("rolls back a template upgrade when the matching style update fails", async () => {
+		const fake = await fakeAnki(0, true, true);
+		try {
+			await assert.rejects(() => saveToAnki(input, fake.url), /style failed/);
+			const updates = fake.calls.filter((call) => call.action === "updateModelTemplates");
+			assert.equal(updates.length, 2, "the second write restores the previous template");
+			const rollback = updates[1]!.params.model as { templates: Record<string, { Front: string }> };
+			assert.equal(rollback.templates["Question → Answer"]!.Front, "old");
+			assert.equal(fake.notes.size, 0, "a failed upgrade does not save a partially rendered note");
+		} finally {
+			await fake.close();
+		}
+	});
+
 	it("escapes quotes and backslashes while preserving exact SourceId identity", async () => {
 		const fake = await fakeAnki();
 		try {
@@ -143,10 +179,42 @@ describe("AnkiConnect save", () => {
 		const fields = noteFields(input);
 		assert.ok(fields.Question.includes("2 &lt; 3?"));
 		assert.ok(fields.Question.includes("<br>Give one reason."));
-		assert.ok(fields.Options.includes("lh-key\">A</span> Because 2 is smaller"));
-		assert.ok(fields.Options.includes("lh-key\">B</span> Because 2 is larger"));
+		const model = JSON.parse(fields.Options);
+		assert.deepEqual(model.options, ["Because 2 is smaller", "Because 2 is larger"]);
+		assert.deepEqual(model.correct, ["Because 2 is smaller"]);
+		assert.equal(model.multi, false);
+		const duplicate = JSON.parse(noteFields({ ...input, correctAnswers: ["Because 2 is smaller", " because   2 is smaller "] }).Options);
+		assert.deepEqual(duplicate.correct, ["Because 2 is smaller"]);
+		assert.equal(duplicate.multi, false, "duplicate correct labels do not enable multi-select");
 		assert.equal(fields.Mode, "recall");
 		assert.equal(fields.Targets, "n_1");
+	});
+
+	it("builds four safe options from the question bank and preserves a long-answer recall fallback", () => {
+		const fields = noteFields({
+			...input,
+			options: [],
+			distractors: ["Because 2 is larger", "Because 2 is smaller", "1 is smaller", "3 is larger", "4 is larger"],
+		});
+		const model = JSON.parse(fields.Options);
+		assert.equal(model.options.length, 4);
+		assert.deepEqual(model.correct, ["Because 2 is smaller"]);
+		assert.equal(new Set(model.options).size, 4, "no duplicate or correct-answer collisions");
+		assert.ok(!model.options.slice(1).includes("Because 2 is smaller"));
+		const long = noteFields({ ...input, options: [], answer: "A long answer\nwith several lines", correctAnswers: ["A long answer\nwith several lines"] });
+		assert.deepEqual(JSON.parse(long.Options).options, [], "long solutions stay free recall");
+		const multiRecall = JSON.parse(noteFields({
+			...input, options: [], answer: "First long\nanswer | Second long\nanswer", correctAnswers: ["First long\nanswer", "Second long\nanswer"],
+		}).Options);
+		assert.deepEqual(multiRecall.options, []);
+		assert.equal(multiRecall.multi, false, "multi-answer recall does not show an empty Check answers control");
+	});
+
+	it("escapes option JSON so model text cannot close the data script", () => {
+		const fields = noteFields({ ...input, options: ["</script><script>alert(1)</script>", "Safe"] });
+		assert.ok(!fields.Options.includes("</script>"));
+		assert.ok(fields.Options.includes("\\u003c"));
+		assert.deepEqual(JSON.parse(fields.Options).options[0], "</script><script>alert(1)</script>");
 	});
 
 	it("surfaces AnkiConnect errors and checks API version 6", async () => {

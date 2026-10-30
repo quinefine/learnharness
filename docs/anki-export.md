@@ -21,6 +21,16 @@ Both preferences start off. With both off, saving is manual only. `movedOn` and 
 
 Auto-save applies only to newly completed work. Opening an old session does not export its history. Preferences persist in local storage on the current browser.
 
+## Session export
+
+The current session header has the same **⋯** menu. **Export all to Anki** exports every eligible lesson and practice item in that session. It uses the same `SourceId` identities as individual saves, so exporting an item again updates rather than duplicates it. The menu shares the correct/incorrect auto-save preferences with the per-item menus.
+
+## Interactive cards
+
+Authored quiz options are preserved. For concise free-form answers, LearnHarness fills up to four options from other answers in the same session. Same-target and same-mode candidates rank first. Duplicate, substring, and correct-answer collisions are removed. Long model solutions remain free-recall cards instead of receiving unsuitable distractors.
+
+One option pick flips the card on desktop and mobile. Multi-select questions flip only after **Check answers**. Front/back option order and selected picks are preserved. The back shows correct and wrong marks. The template has touch targets, dark-mode colors, keyboard support, and a safe answer fallback when scripts do not run.
+
 ## Previous questions and practice
 
 Answered lesson cards, old problem cards, and concluded practice cards expose the same **⋯** menu for retroactive manual saves. The item must retain its original correct answer or model solution. Preference questions and incomplete old records without that data are not eligible.
@@ -47,6 +57,7 @@ AnkiConnect writes only to desktop Anki. It does not trigger an AnkiWeb sync. Sy
 - `tests/anki-connect.test.ts`: protocol, deduplication, field formatting, and errors.
 - `tests/anki-export.test.ts`: stable snapshots, preferences, outcomes, and old-session protection.
 - `tests/anki-save-route.test.ts`: route validation and proxy origin handling.
-- `tests/anki-save-menu.test.tsx`: explicit saves, preference opt-in, and double-click locking.
+- `tests/anki-save-menu.test.tsx`: explicit saves, session export, preference opt-in, and double-click locking.
+- `tests/anki-card-flow.test.ts`: Chromium front/back order, desktop and iPhone flips, wrong/correct marks, and multi-select.
 - `tests/render-anki-save.test.tsx`: pending and retroactive lesson/practice menus and solution hiding.
 - `tests/anki-live.test.ts`: opt-in real AnkiConnect integration. Run with `ANKI_LIVE=1` against a disposable profile.

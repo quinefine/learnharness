@@ -16,7 +16,7 @@ import {
 const STORAGE_KEY = "learnharness.anki-auto-save.v1";
 const SETTINGS_EVENT = "learnharness:anki-auto-save-changed";
 
-function useAutoSaveSettings(): [AnkiAutoSaveSettings, (kind: AnkiAutoSaveKind) => void] {
+export function useAutoSaveSettings(): [AnkiAutoSaveSettings, (kind: AnkiAutoSaveKind) => void] {
 	const [settings, setSettings] = useState(DEFAULT_ANKI_AUTO_SAVE);
 	useEffect(() => {
 		const read = () => {
@@ -51,11 +51,13 @@ function useAutoSaveSettings(): [AnkiAutoSaveSettings, (kind: AnkiAutoSaveKind) 
 /** Discreet per-item menu. Auto-save applies only when the caller supplies a new-answer outcome. */
 export function AnkiSaveMenu({
 	snapshot,
+	sessionSnapshots,
 	autoSaveWhen = null,
 	itemLabel = "question",
 	className,
 }: {
-	snapshot: AnkiSaveInput;
+	snapshot?: AnkiSaveInput;
+	sessionSnapshots?: readonly AnkiSaveInput[];
 	autoSaveWhen?: AnkiAutoSaveKind | null;
 	itemLabel?: "question" | "problem";
 	className?: string;
@@ -71,23 +73,29 @@ export function AnkiSaveMenu({
 	const inFlight = useRef(false);
 	const autoAttempt = useRef<string | null>(null);
 	const requestGeneration = useRef(0);
-	const sourceIdentity = useRef(snapshot.sourceId);
+	const sourceId = snapshot?.sourceId ?? "session";
+	const sourceIdentity = useRef(sourceId);
+
+	const postSnapshot = useCallback(async (item: AnkiSaveInput): Promise<boolean> => {
+		const response = await fetch("/api/anki/save", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(item),
+		});
+		const body = await response.json() as { ok?: boolean; error?: string; updated?: boolean };
+		if (!response.ok || !body.ok) throw new Error(body.error || `Save failed (${response.status})`);
+		return body.updated === true;
+	}, []);
 
 	const save = useCallback(async () => {
-		if (inFlight.current) return;
+		if (inFlight.current || !snapshot) return;
 		inFlight.current = true;
 		const generation = requestGeneration.current;
 		setState({ status: "saving" });
 		try {
-			const response = await fetch("/api/anki/save", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(snapshot),
-			});
-			const body = await response.json() as { ok?: boolean; error?: string; updated?: boolean };
-			if (!response.ok || !body.ok) throw new Error(body.error || `Save failed (${response.status})`);
+			const updated = await postSnapshot(snapshot);
 			if (generation === requestGeneration.current) {
-				setState({ status: "saved", message: body.updated ? "Updated in Anki" : "Saved to Anki" });
+				setState({ status: "saved", message: updated ? "Updated in Anki" : "Saved to Anki" });
 			}
 		} catch (error) {
 			if (generation === requestGeneration.current) {
@@ -97,23 +105,48 @@ export function AnkiSaveMenu({
 			inFlight.current = false;
 			setRequestCompletion((value) => value + 1);
 		}
-	}, [snapshot]);
+	}, [postSnapshot, snapshot]);
+
+	const exportAll = useCallback(async () => {
+		if (inFlight.current || !sessionSnapshots?.length) return;
+		inFlight.current = true;
+		const generation = requestGeneration.current;
+		let saved = 0;
+		let failed = 0;
+		try {
+			for (let index = 0; index < sessionSnapshots.length; index++) {
+				setState({ status: "saving", message: `Exporting ${index + 1} of ${sessionSnapshots.length}…` });
+				try {
+					await postSnapshot(sessionSnapshots[index]!);
+					saved++;
+				} catch {
+					failed++;
+				}
+			}
+			if (generation === requestGeneration.current) {
+				setState({ status: failed ? "error" : "saved", message: `Exported ${saved} of ${sessionSnapshots.length} items${failed ? `; ${failed} failed` : ""}` });
+			}
+		} finally {
+			inFlight.current = false;
+			setRequestCompletion((value) => value + 1);
+		}
+	}, [postSnapshot, sessionSnapshots]);
 
 	useEffect(() => {
-		if (sourceIdentity.current === snapshot.sourceId) return;
-		sourceIdentity.current = snapshot.sourceId;
+		if (sourceIdentity.current === sourceId) return;
+		sourceIdentity.current = sourceId;
 		requestGeneration.current += 1;
 		autoAttempt.current = null;
 		setState({ status: "idle" });
-	}, [snapshot.sourceId]);
+	}, [sourceId]);
 
 	useEffect(() => {
-		if (!autoSaveWhen || !settings[autoSaveWhen] || inFlight.current) return;
+		if (!snapshot || !autoSaveWhen || !settings[autoSaveWhen] || inFlight.current) return;
 		const attempt = `${snapshot.sourceId}:${autoSaveWhen}`;
 		if (autoAttempt.current === attempt) return;
 		autoAttempt.current = attempt; // one attempt per displayed outcome; manual retry remains available
 		void save();
-	}, [autoSaveWhen, save, settings, snapshot.sourceId, requestCompletion]);
+	}, [autoSaveWhen, save, settings, snapshot, requestCompletion]);
 
 	useEffect(() => {
 		if (open && anchor) panelRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
@@ -197,11 +230,11 @@ export function AnkiSaveMenu({
 						type="button"
 						role="menuitem"
 						data-testid="save-to-anki"
-						disabled={state.status === "saving"}
-						onClick={() => void save()}
+						disabled={state.status === "saving" || (sessionSnapshots !== undefined && sessionSnapshots.length === 0)}
+						onClick={() => void (sessionSnapshots ? exportAll() : save())}
 						className="w-full rounded-lg px-3 py-2 text-left hover:bg-accent disabled:opacity-50"
 					>
-						{state.status === "saving" ? "Saving…" : `Save this ${itemLabel} to Anki`}
+						{state.status === "saving" ? "Saving…" : sessionSnapshots ? `Export all ${sessionSnapshots.length} items to Anki` : `Save this ${itemLabel} to Anki`}
 					</button>
 					<div className="mx-2 my-2 border-t" />
 					<div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Auto-save new answers</div>

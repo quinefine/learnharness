@@ -10,6 +10,7 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { AnkiQuestionBank } from "./anki.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -310,6 +311,8 @@ export interface ArtifactPartProps {
 	autoSaveEligible?: boolean;
 	/** Consume the one-shot transition after the card latches it. */
 	onConsumeAutoSave?: () => void;
+	/** Session answers available as ranked distractors. */
+	questionBank?: AnkiQuestionBank;
 	part: {
 		type: string;
 		state: string;

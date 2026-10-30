@@ -13,8 +13,8 @@ describe("live AnkiConnect", { skip: !enabled }, () => {
 	it("creates then updates one real note, and accepts the HTTP route", async () => {
 		const sourceId = `learnharness:live:${Date.now()}`;
 		const input = {
-			sourceId, kind: "practice" as const, question: "Why is 2 < 3?", options: ["Smaller", "Larger"],
-			answer: "Smaller", solution: "Compare the integers.", source: "live-test", mode: "recall", targets: ["n_1"],
+			sourceId, kind: "practice" as const, question: "Why is 2 < 3?", options: ["Smaller", "Larger"], distractors: [],
+			answer: "Smaller", correctAnswers: ["Smaller"], solution: "Compare the integers.", source: "live-test", mode: "recall", targets: ["n_1"],
 		};
 		const first = await saveToAnki(input);
 		const second = await saveToAnki({ ...input, solution: "Updated solution." });
@@ -25,6 +25,16 @@ describe("live AnkiConnect", { skip: !enabled }, () => {
 		assert.equal(ids.length, 1);
 		const info = await ankiCall<Array<{ fields: Record<string, { value: string }> }>>("notesInfo", { notes: ids });
 		assert.equal(info[0]!.fields.Solution!.value, "Updated solution.");
+		const optionModel = JSON.parse(info[0]!.fields.Options!.value);
+		assert.deepEqual(optionModel.correct, ["Smaller"]);
+		assert.ok(optionModel.options.includes("Larger"));
+		const templates = await ankiCall<Record<string, { Front: string }>>("modelTemplates", { modelName: "LearnHarness Practice" });
+		assert.ok(templates["Question → Answer"]!.Front.includes("lh-mc-v2"), "the real note type upgraded to the interactive renderer");
+		const cardIds = await ankiCall<number[]>("findCards", { query: `SourceId:"${sourceId}"` });
+		const rendered = await ankiCall<Array<{ question: string; answer: string }>>("cardsInfo", { cards: cardIds });
+		assert.ok(rendered[0]!.question.includes('data-side="front"'));
+		assert.ok(rendered[0]!.answer.includes('data-side="back"'));
+		assert.ok(rendered[0]!.question.includes("lh-options-data"));
 
 		const response = await POST(new Request("http://test/api/anki/save", {
 			method: "POST", headers: { "Content-Type": "application/json" },
@@ -38,8 +48,8 @@ describe("live AnkiConnect", { skip: !enabled }, () => {
 	it("deduplicates special-character and concurrent real saves", async () => {
 		const sourceId = `learnharness:live:${Date.now()}:folder\\chat:"odd"`;
 		const input = {
-			sourceId, kind: "lesson" as const, question: "Concurrent identity test", options: [],
-			answer: "One note", solution: "", source: "live-test", mode: "check", targets: [],
+			sourceId, kind: "lesson" as const, question: "Concurrent identity test", options: [], distractors: [],
+			answer: "One note", correctAnswers: ["One note"], solution: "", source: "live-test", mode: "check", targets: [],
 		};
 		const [first, second] = await Promise.all([saveToAnki(input), saveToAnki(input)]);
 		assert.equal(first.updated, false);

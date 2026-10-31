@@ -31,6 +31,8 @@ Authored quiz options are preserved. For concise free-form answers, LearnHarness
 
 One option pick flips the card on desktop and mobile. Multi-select questions flip only after **Check answers**. Front/back option order and selected picks are preserved. The back shows correct and wrong marks. The template has touch targets, dark-mode colors, keyboard support, and a safe answer fallback when scripts do not run.
 
+Card fields use LearnHarness's own Streamdown, code-block, and KaTeX renderer at export time. Anki receives static HTML with bundled KaTeX fonts. Raw HTML stays sanitized, browser-only controls stay hidden, and code blocks scroll horizontally on narrow screens. Links remain native anchors. Remote images become alt text. Mermaid fences retain their source as code.
+
 ## Previous questions and practice
 
 Answered lesson cards, old problem cards, and concluded practice cards expose the same **⋯** menu for retroactive manual saves. The item must retain its original correct answer or model solution. Preference questions and incomplete old records without that data are not eligible.

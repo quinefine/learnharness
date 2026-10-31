@@ -90,6 +90,45 @@ describe("Anki interactive card flows", { skip: !hasChrome }, () => {
 		assert.equal(result.wrongMarked, true);
 	});
 
+	it("renders bold and a fenced code box without raw markers", () => {
+		const tex = String.fromCharCode(92);
+		const formatted = {
+			...base,
+			question: 'Game **has** Players. [Reference](https://example.com)\n![pixel](https://host.example/track.png)\n```csharp\nclass Hand { private List<Card> cards; }\nclass Deck { }\n```\n```mermaid\ngraph TD; A-->B;\n```',
+			options: ["**Solid line**", "Dashed arrow", "Hollow triangle", "Object slot"],
+			answer: "**Solid line**", correctAnswers: ["**Solid line**"],
+			solution: `Use $${tex}texttt{Card}$.`,
+		};
+		const result = runFlow("formatting", formatted, `
+			const body=document.querySelector('[data-streamdown="code-block-body"]');const pre=body.querySelector('pre');
+			const rule=Array.from(document.styleSheets[0].cssRules).find(r=>r.selectorText==='.lh-card [data-streamdown="code-block-body"]');
+			const bold=document.querySelector('.lh-question strong').textContent;
+			const optionBold=document.querySelector('.lh-option strong').textContent;
+			const code=pre.textContent;const raw=document.querySelector('.lh-question').textContent;
+			const lines=pre.querySelectorAll('.block');const multiline=lines.length>1&&lines[0].getBoundingClientRect().top!==lines[1].getBoundingClientRect().top;
+			const href=document.querySelector('.lh-question a').getAttribute('href');
+			const images=document.querySelectorAll('.lh-question img').length;
+			const mermaid=document.querySelector('[data-streamdown="mermaid-source"]').textContent;
+			const spinners=document.querySelectorAll('[aria-busy="true"]').length;
+			const fits=body.getBoundingClientRect().width<=document.querySelector('.lh-card').getBoundingClientRect().width;
+			render(BACK);const texCode=document.querySelector('.lh-solution .katex-html').textContent;
+			finish({bold,optionBold,code,raw,multiline,href,images,mermaid,spinners,overflow:rule.style.overflowX,fits,texCode});
+		`);
+		assert.equal(result.bold, "has");
+		assert.equal(result.optionBold, "Solid line");
+		assert.match(String(result.code), /class Hand/);
+		assert.ok(!String(result.raw).includes("**"));
+		assert.ok(!String(result.raw).includes("```"));
+		assert.equal(result.multiline, true);
+		assert.equal(result.href, "https://example.com/");
+		assert.equal(result.images, 0);
+		assert.match(String(result.mermaid), /graph TD/);
+		assert.equal(result.spinners, 0);
+		assert.equal(result.overflow, "auto");
+		assert.equal(result.fits, true);
+		assert.equal(result.texCode, "Card");
+	});
+
 	it("does not reuse cached choices after the note model changes", () => {
 		const initial = { ...base, answer: "Solid line | Hollow triangle", correctAnswers: ["Solid line", "Hollow triangle"] };
 		const updated = { ...base, question: "Updated question", options: ["New A", "New B"], answer: "New A", correctAnswers: ["New A"] };
@@ -112,7 +151,7 @@ describe("Anki interactive card flows", { skip: !hasChrome }, () => {
 			options()[normal].click();render(BACK);
 			finish({correct:options().filter(el=>el.classList.contains('is-correct')).map(el=>el.querySelector('.lh-option-text').textContent)});
 		`);
-		assert.deepEqual(result.correct, ["__proto__"]);
+		assert.deepEqual(result.correct, ["proto"], "Markdown formats the label, while raw __proto__ remains the correct answer");
 	});
 
 	it("renders malformed legacy option data as inert text", () => {

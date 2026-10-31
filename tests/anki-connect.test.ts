@@ -90,7 +90,7 @@ describe("AnkiConnect save", () => {
 			assert.equal(second.updated, true);
 			assert.equal(first.noteId, second.noteId);
 			assert.equal(fake.notes.size, 1, "SourceId deduplicates across saves");
-			assert.equal(fake.notes.get(input.sourceId)?.fields.Solution, "Updated explanation.");
+			assert.ok(fake.notes.get(input.sourceId)!.fields.Solution!.includes("<p>Updated explanation.</p>"));
 			assert.deepEqual(fake.notes.get(input.sourceId)?.tags,
 				["learnharness", "kind-practice", "mode-composition", "target-n_2"]);
 			assert.equal(fake.calls.filter((c) => c.action === "createModel").length, 1);
@@ -117,7 +117,7 @@ describe("AnkiConnect save", () => {
 			const update = fake.calls.find((call) => call.action === "updateModelTemplates")!;
 			const model = update.params.model as { name: string; templates: Record<string, { Front: string; Back: string }> };
 			assert.equal(model.name, "LearnHarness Practice");
-			assert.ok(model.templates["Question → Answer"]!.Front.includes("lh-mc-v2"));
+			assert.ok(model.templates["Question → Answer"]!.Front.includes("lh-mc-v4"));
 		} finally {
 			await fake.close();
 		}
@@ -178,7 +178,7 @@ describe("AnkiConnect save", () => {
 	it("escapes model-authored HTML and labels options without changing their order", () => {
 		const fields = noteFields(input);
 		assert.ok(fields.Question.includes("2 &lt; 3?"));
-		assert.ok(fields.Question.includes("<br>Give one reason."));
+		assert.ok(fields.Question.includes("Give one reason."));
 		const model = JSON.parse(fields.Options);
 		assert.deepEqual(model.options, ["Because 2 is smaller", "Because 2 is larger"]);
 		assert.deepEqual(model.correct, ["Because 2 is smaller"]);
@@ -188,6 +188,73 @@ describe("AnkiConnect save", () => {
 		assert.equal(duplicate.multi, false, "duplicate correct labels do not enable multi-select");
 		assert.equal(fields.Mode, "recall");
 		assert.equal(fields.Targets, "n_1");
+	});
+
+	it("renders card Markdown and fenced code without allowing raw HTML", () => {
+		const tex = String.fromCharCode(92);
+		const fields = noteFields({
+			...input,
+			question: 'Game **has** Players.\n```csharp\nclass Hand { private List<Card> cards; }\n```',
+			solution: `Use $${tex}texttt{Card}$ and \`List<Card>\`. <img src=x onerror="alert(1)">`,
+		});
+		assert.ok(fields.Question.includes('<strong data-streamdown="strong">has</strong>'));
+		assert.ok(!fields.Question.includes("**has**"));
+		assert.ok(fields.Question.includes('data-streamdown="code-block"'));
+		assert.ok(fields.Question.includes('data-language="csharp"'));
+		assert.ok(fields.Question.includes("List&lt;Card&gt;"));
+		assert.ok(!fields.Question.includes("```"));
+		assert.ok(fields.Solution.includes('<span class="katex">'));
+		assert.ok(fields.Solution.includes("mord texttt"));
+		assert.ok(fields.Solution.includes('data-streamdown="inline-code"'));
+		assert.ok(fields.Solution.includes("List&lt;Card&gt;"));
+		assert.ok(!fields.Solution.includes("$" + tex + "texttt"));
+		assert.ok(!fields.Solution.includes("<img"));
+		const optionFields = noteFields({ ...input, options: ["**Bold choice**", "Plain"], answer: "**Bold choice**", correctAnswers: ["**Bold choice**"] });
+		const options = JSON.parse(optionFields.Options);
+		assert.ok(options.optionHtml["**Bold choice**"].includes('<strong data-streamdown="strong">Bold choice</strong>'));
+	});
+
+	it("keeps links usable, blocks remote images, and preserves Mermaid source", () => {
+		const fields = noteFields({
+			...input,
+			question: '[click](https://example.com)\n![pixel](https://host.example/track.png)\n```mermaid\ngraph TD; A-->B;\n```',
+		});
+		assert.ok(fields.Question.includes('<a href="https://example.com/" target="_blank" rel="noreferrer noopener">click</a>'));
+		assert.ok(!fields.Question.includes("<img"));
+		assert.ok(!fields.Question.includes("host.example"));
+		assert.ok(fields.Question.includes('[Image: pixel]'));
+		assert.ok(fields.Question.includes('data-streamdown="mermaid-source"'));
+		assert.ok(fields.Question.includes("graph TD; A--&gt;B;"));
+		assert.ok(!fields.Question.includes('aria-busy="true"'));
+	});
+
+	it("preserves protocol-relative link authorities", () => {
+		const fields = noteFields({ ...input, question: '[root](//example.com) and [path](//example.com/a/b). [angle](<//example.com/a/b>) [angle space](<//example.com/a b>) <a href="//example.com/a/b">raw</a>. Literal: `[x](//example.com)`' });
+		assert.ok(fields.Question.includes('href="https://example.com/"'));
+		assert.ok(fields.Question.includes('href="https://example.com/a/b"'));
+		assert.equal(fields.Question.match(/href="https:\/\/example\.com\/a\/b"/g)?.length, 3, "inline, angle, and raw HTML links preserve the host");
+		assert.ok(!fields.Question.includes('href="/a/b"'));
+		assert.ok(fields.Question.includes("[x](//example.com)"), "literal code is not rewritten");
+		assert.ok(fields.Question.includes('href="https://example.com/a%20b"'), "angle destinations may contain spaces");
+	});
+
+	it("does not rewrite attribute-like prose or link titles", () => {
+		const fields = noteFields({
+			...input,
+			question: 'The literal text href=//example.com stays literal. [x](https://safe.example "literal src=//example.com")',
+		});
+		assert.ok(fields.Question.includes("href=//example.com"));
+		assert.ok(fields.Question.includes('title="literal src=//example.com"'));
+		assert.ok(!fields.Question.includes("literal src=https://"));
+	});
+
+	it("handles quoted greater-than signs before and after raw href attributes", () => {
+		const fields = noteFields({
+			...input,
+			question: '<a title="1 > 0" href="//example.com/a/b">before</a> <a href="//example.com/a/b" title="1 > 0">after</a>',
+		});
+		assert.equal(fields.Question.match(/href="https:\/\/example\.com\/a\/b"/g)?.length, 2);
+		assert.ok(!fields.Question.includes('href="/a/b"'));
 	});
 
 	it("builds four safe options from the question bank and preserves a long-answer recall fallback", () => {

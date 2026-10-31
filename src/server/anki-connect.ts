@@ -9,6 +9,7 @@ import { z } from "zod";
 import { ankiOptionEligible } from "../core/anki-export.ts";
 import type { AnkiSaveInput } from "../core/contracts/anki.ts";
 import { ANKI_TEMPLATE_VERSION, BACK, CSS, FRONT } from "./anki-card-template.ts";
+import { renderAnkiMarkdown } from "./anki-markdown.tsx";
 
 export const ANKI_MODEL = "LearnHarness Practice";
 export const ANKI_DECK = "LearnHarness";
@@ -37,10 +38,14 @@ export class AnkiConnectError extends Error {
 	}
 }
 
+function escapeHtml(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /** Keep model-authored content as safe plain HTML, not executable card markup. */
 export function plainHtml(text: string): string {
-	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/\r\n?/g, "\n").replace(/\n/g, "<br>");
+	return escapeHtml(text).replace(/\r\n?/g, "\n").replace(/\n/g, "<br>");
 }
 
 function optionKey(text: string): string {
@@ -56,7 +61,7 @@ function nearDuplicate(a: string, b: string): boolean {
 }
 
 /** One model supplies the option list and correct labels for every renderer. */
-export function optionModel(input: AnkiSaveInput): { v: 1; options: string[]; correct: string[]; multi: boolean } {
+export function optionModel(input: AnkiSaveInput): { v: 1; options: string[]; correct: string[]; multi: boolean; optionHtml: Record<string, string> } {
 	const correct: string[] = [];
 	for (const answer of input.correctAnswers.length ? input.correctAnswers : [input.answer]) {
 		const text = answer.trim();
@@ -82,7 +87,8 @@ export function optionModel(input: AnkiSaveInput): { v: 1; options: string[]; co
 			add(candidate, false);
 		}
 	}
-	return { v: 1, options, correct, multi: correct.length > 1 && options.length > 1 };
+	const optionHtml = Object.fromEntries(options.map((label) => [label, renderAnkiMarkdown(label)]));
+	return { v: 1, options, correct, multi: correct.length > 1 && options.length > 1, optionHtml };
 }
 
 export function optionsData(input: AnkiSaveInput): string {
@@ -93,10 +99,10 @@ export function optionsData(input: AnkiSaveInput): string {
 
 export function noteFields(input: AnkiSaveInput): Record<(typeof FIELDS)[number], string> {
 	return {
-		Question: plainHtml(input.question),
+		Question: renderAnkiMarkdown(input.question),
 		Options: optionsData(input),
-		Answer: plainHtml(input.answer),
-		Solution: plainHtml(input.solution),
+		Answer: renderAnkiMarkdown(input.answer),
+		Solution: renderAnkiMarkdown(input.solution),
 		Source: plainHtml(input.source),
 		SourceId: input.sourceId, // hidden identity field: preserve the exact searchable value
 		Mode: plainHtml(input.mode ?? input.kind),

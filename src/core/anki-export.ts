@@ -182,10 +182,8 @@ export function ankiQuestionBank(messages: readonly { parts: AnkiBankPart[] }[],
 			if ((!practice && !lesson) || !part.toolCallId) continue;
 			const input = (part.input ?? {}) as Record<string, unknown>;
 			const output = (part.output ?? {}) as Record<string, unknown>;
-			let answers: unknown[] = practice
-				? [input.modelSolution]
-				: quizAnswers(input);
-			answers = answers.filter((answer): answer is string => typeof answer === "string");
+			let answers = (practice ? [input.modelSolution] : quizAnswers(input))
+				.filter((answer): answer is string => typeof answer === "string");
 			if (answers.length === 0 && !practice) answers = answeredAnswers(output);
 			const mode = typeof input.mode === "string" ? input.mode : practice ? "practice" : part.type.slice("tool-".length);
 			const targets = Array.isArray(input.target) ? input.target.filter((target): target is string => typeof target === "string") : [];

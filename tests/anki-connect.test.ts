@@ -117,7 +117,7 @@ describe("AnkiConnect save", () => {
 			const update = fake.calls.find((call) => call.action === "updateModelTemplates")!;
 			const model = update.params.model as { name: string; templates: Record<string, { Front: string; Back: string }> };
 			assert.equal(model.name, "LearnHarness Practice");
-			assert.ok(model.templates["Question → Answer"]!.Front.includes("lh-mc-v4"));
+			assert.ok(model.templates["Question → Answer"]!.Front.includes("lh-mc-v5"));
 		} finally {
 			await fake.close();
 		}
@@ -201,7 +201,9 @@ describe("AnkiConnect save", () => {
 		assert.ok(!fields.Question.includes("**has**"));
 		assert.ok(fields.Question.includes('data-streamdown="code-block"'));
 		assert.ok(fields.Question.includes('data-language="csharp"'));
-		assert.ok(fields.Question.includes("List&lt;Card&gt;"));
+		assert.ok(fields.Question.includes('data-line-number="1"'), "static code keeps line numbers");
+		assert.ok(fields.Question.includes("color:#F97583"), "C# keywords use the GitHub Dark token colors");
+		assert.ok(fields.Question.replace(/<[^>]+>/g, "").includes("List&lt;Card&gt;"), "generic type syntax stays escaped across token spans");
 		assert.ok(!fields.Question.includes("```"));
 		assert.ok(fields.Solution.includes('<span class="katex">'));
 		assert.ok(fields.Solution.includes("mord texttt"));
@@ -212,6 +214,16 @@ describe("AnkiConnect save", () => {
 		const optionFields = noteFields({ ...input, options: ["**Bold choice**", "Plain"], answer: "**Bold choice**", correctAnswers: ["**Bold choice**"] });
 		const options = JSON.parse(optionFields.Options);
 		assert.ok(options.optionHtml["**Bold choice**"].includes('<strong data-streamdown="strong">Bold choice</strong>'));
+	});
+
+	it("honors fence line-number settings and falls back safely for unknown languages", () => {
+		const numbered = noteFields({ ...input, question: "```csharp startLine=7\nclass Hand {}\n```" }).Question;
+		assert.ok(numbered.includes('data-line-number="7"'));
+		const unnumbered = noteFields({ ...input, question: "```js noLineNumbers\nconst value = 1;\n```" }).Question;
+		assert.ok(!unnumbered.includes("data-line-number"));
+		const fallback = noteFields({ ...input, question: "```not-a-language\n<safe>&\n```" }).Question;
+		assert.ok(fallback.includes("&lt;safe&gt;&amp;"));
+		assert.ok(fallback.includes('data-streamdown="code-block"'));
 	});
 
 	it("keeps links usable, blocks remote images, and preserves Mermaid source", () => {

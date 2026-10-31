@@ -106,13 +106,16 @@ describe("Anki interactive card flows", { skip: !hasChrome }, () => {
 			const optionBold=document.querySelector('.lh-option strong').textContent;
 			const code=pre.textContent;const raw=document.querySelector('.lh-question').textContent;
 			const lines=pre.querySelectorAll('.block');const multiline=lines.length>1&&lines[0].getBoundingClientRect().top!==lines[1].getBoundingClientRect().top;
+			const colored=pre.querySelectorAll('span[style*="color:"]').length>0;
+			const numbered=pre.querySelector('.block[data-line-number="1"]')!==null;
+			const fontSize=parseFloat(getComputedStyle(body).fontSize);
 			const href=document.querySelector('.lh-question a').getAttribute('href');
 			const images=document.querySelectorAll('.lh-question img').length;
 			const mermaid=document.querySelector('[data-streamdown="mermaid-source"]').textContent;
 			const spinners=document.querySelectorAll('[aria-busy="true"]').length;
 			const fits=body.getBoundingClientRect().width<=document.querySelector('.lh-card').getBoundingClientRect().width;
 			render(BACK);const texCode=document.querySelector('.lh-solution .katex-html').textContent;
-			finish({bold,optionBold,code,raw,multiline,href,images,mermaid,spinners,overflow:rule.style.overflowX,fits,texCode});
+			finish({bold,optionBold,code,raw,multiline,colored,numbered,fontSize,href,images,mermaid,spinners,overflow:rule.style.overflowX,fits,texCode});
 		`);
 		assert.equal(result.bold, "has");
 		assert.equal(result.optionBold, "Solid line");
@@ -120,6 +123,9 @@ describe("Anki interactive card flows", { skip: !hasChrome }, () => {
 		assert.ok(!String(result.raw).includes("**"));
 		assert.ok(!String(result.raw).includes("```"));
 		assert.equal(result.multiline, true);
+		assert.equal(result.colored, true);
+		assert.equal(result.numbered, true);
+		assert.ok(Number(result.fontSize) >= 12 && Number(result.fontSize) <= 14);
 		assert.equal(result.href, "https://example.com/");
 		assert.equal(result.images, 0);
 		assert.match(String(result.mermaid), /graph TD/);

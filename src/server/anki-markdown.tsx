@@ -14,6 +14,7 @@ import { unified, type Processor } from "unified";
 import { SKIP, visit } from "unist-util-visit";
 import { repairMathForDisplay, transformMathDelimiters } from "../core/index.ts";
 import { readContentSpans } from "../core/content-reader.ts";
+import { ankiTokenStyle, highlightAnkiCode } from "./anki-code.ts";
 
 const math = createMathPlugin({ singleDollarTextMath: true });
 const sanitizeSchema = {
@@ -66,9 +67,21 @@ function staticCodeBlock(node: Element): Element {
 	if (language === "mermaid") {
 		return element("pre", { "data-streamdown": "mermaid-source" }, [element("code", {}, [{ type: "text", value: source }])]);
 	}
-	const lines = source.split("\n").map((line) =>
-		element("span", { className: ["block"] }, [{ type: "text", value: line || "\n" }]),
-	);
+	const meta = typeof code.properties.metastring === "string" ? code.properties.metastring : "";
+	const startMatch = /startLine=(\d+)/.exec(meta);
+	const parsedStart = startMatch ? Number.parseInt(startMatch[1]!, 10) : 1;
+	const startLine = parsedStart >= 1 ? parsedStart : 1;
+	const lineNumbers = !/\bnoLineNumbers\b/.test(meta);
+	const lines = highlightAnkiCode(source, language).map((tokens, index) => {
+		const children: ElementContent[] = tokens.map((token) =>
+			element("span", { style: ankiTokenStyle(token) }, [{ type: "text", value: token.content }]),
+		);
+		if (!tokens.some((token) => token.content.length > 0)) children.push({ type: "text", value: "\n" });
+		return element("span", {
+			className: ["block"],
+			"data-line-number": lineNumbers ? String(startLine + index) : undefined,
+		}, children);
+	});
 	return element("div", { "data-language": language, "data-streamdown": "code-block" }, [
 		element("div", { "data-language": language, "data-streamdown": "code-block-header" }, [
 			element("span", {}, [{ type: "text", value: language }]),
@@ -105,7 +118,11 @@ function ankiStaticComponents() {
 				return;
 			}
 			if (node.tagName === "table") {
-				node.properties = { ...node.properties, className: ["w-full", "border-collapse"], "data-streamdown": "table" };
+				node.properties = { ...node.properties, "data-streamdown": "table" };
+				if (typeof index === "number" && parent) {
+					parent.children[index] = element("div", { "data-streamdown": "table-wrapper" }, [node]);
+					return [SKIP, index + 1];
+				}
 				return;
 			}
 			if (node.tagName === "blockquote") {

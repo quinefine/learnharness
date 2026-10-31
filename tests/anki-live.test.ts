@@ -29,7 +29,7 @@ describe("live AnkiConnect", { skip: !enabled }, () => {
 		assert.deepEqual(optionModel.correct, ["Smaller"]);
 		assert.ok(optionModel.options.includes("Larger"));
 		const templates = await ankiCall<Record<string, { Front: string }>>("modelTemplates", { modelName: "LearnHarness Practice" });
-		assert.ok(templates["Question → Answer"]!.Front.includes("lh-mc-v4"), "the real note type upgraded to the interactive renderer");
+		assert.ok(templates["Question → Answer"]!.Front.includes("lh-mc-v5"), "the real note type upgraded to the interactive renderer");
 		const styling = await ankiCall<{ css: string }>("modelStyling", { modelName: "LearnHarness Practice" });
 		assert.ok(styling.css.includes("data:font/woff2;base64,"), "KaTeX fonts are embedded in the note type");
 		assert.ok(styling.css.includes('[data-streamdown="code-block-body"]'));

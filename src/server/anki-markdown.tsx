@@ -1,10 +1,15 @@
 import React, { type ComponentProps } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { createRequire } from "node:module";
 import { CodeBlock, Streamdown, useIsCodeFenceIncomplete, type ExtraProps } from "streamdown";
 import { codeSource, mdComponents } from "../../components/md-blocks.tsx";
 import { streamdownPlugins, streamdownRemend } from "../../components/ai-elements/message.tsx";
 import { repairMathForDisplay, transformMathDelimiters } from "../core/index.ts";
 import { readContentSpans } from "../core/content-reader.ts";
+
+// This route renders the app's client components to static HTML outside the
+// Next.js render tree. Load the Node renderer at runtime so Turbopack does
+// not mistake this for a Server Component importing react-dom/server.
+const { renderToStaticMarkup } = createRequire(import.meta.url)("react-dom/server") as typeof import("react-dom/server");
 
 function AnkiCode(props: ComponentProps<"code"> & ExtraProps) {
 	const incomplete = useIsCodeFenceIncomplete();

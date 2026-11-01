@@ -6,10 +6,11 @@
  * /api/settings/* — the per-chat settings PUT is retired from the UI;
  * legacy records' per-chat overrides still resolve server-side).
  *
- * pi-ai owns ALL the data: the catalog (id/name/cost/context/modality/
+ * pi-ai owns the base catalog (id/name/cost/context/modality/
  * thinkingLevelMap) and the per-model thinking truth
- * (getSupportedThinkingLevels / clampThinkingLevel). This module only
- * projects and validates — no second registry to drift out of sync.
+ * (getSupportedThinkingLevels / clampThinkingLevel). Explicit compatibility
+ * patches are applied at provider registration; this module only projects
+ * and validates the resulting catalog.
  *
  * Federation: `getModels()` is called per keyed provider (federated, the
  * model-slots wave), so a provider appears in the picker exactly when its

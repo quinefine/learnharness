@@ -67,6 +67,29 @@ describe("Anki export snapshots and preferences", () => {
 		assert.deepEqual(all.find((item) => item.sourceId === snapshot.sourceId)?.distractors, ["Dotted line", "Dashed arrow"]);
 	});
 
+	it("resolves legacy letter references without exporting unresolved keys as distractors", () => {
+		const messages = [
+			{ parts: [{ type: "tool-quiz", toolCallId: "legacy", input: {
+				question: "Private?", options: [{ label: "Only inside the class" }, { label: "Same file", value: "b" }], correctAnswer: "a",
+			} }] },
+			{ parts: [{ type: "tool-quiz", toolCallId: "broken", input: {
+				question: "Broken", options: [{ label: "First" }, { label: "Second" }], correctAnswer: "not-an-option",
+			} }] },
+			{ parts: [{ type: "tool-quiz", toolCallId: "explicit", input: {
+				question: "Explicit", options: [{ label: "Positional" }, { label: "Explicit A", value: "a" }], correctAnswer: "a",
+			} }] },
+			{ parts: [{ type: "tool-quiz", toolCallId: "current", input: {
+				question: "Price?", options: [{ label: "Still 10" }, { label: "Now 20" }, { label: "Undefined" }], correctAnswer: "Still 10",
+			} }] },
+		];
+		const bank = ankiQuestionBank(messages, "chat-1");
+		assert.deepEqual(bank.map((entry) => entry.answer), ["Only inside the class", "Explicit A", "Still 10"]);
+		const current = ankiSessionSnapshots(messages, "chat-1").find((item) => item.sourceId.endsWith(":current"));
+		assert.ok(current);
+		assert.ok(!current.distractors.includes("a"));
+		assert.ok(!current.distractors.includes("not-an-option"));
+	});
+
 	it("uses graded quiz labels instead of an incorrect learner submission", () => {
 		const bank = ankiQuestionBank([{ parts: [{
 			type: "tool-quiz", toolCallId: "graded",

@@ -156,9 +156,15 @@ export function ankiOptionEligible(value: string): boolean {
 function quizAnswers(input: Record<string, unknown>): string[] {
 	const options = Array.isArray(input.options) ? input.options as Array<{ label?: unknown; value?: unknown }> : [];
 	const raw = Array.isArray(input.correctAnswer) ? input.correctAnswer : [input.correctAnswer];
-	return raw.filter((value): value is string => typeof value === "string").map((value) => {
+	return raw.filter((value): value is string => typeof value === "string").flatMap((value) => {
 		const option = options.find((candidate) => candidate.value === value || candidate.label === value);
-		return typeof option?.label === "string" ? option.label : value;
+		if (typeof option?.label === "string") return [option.label];
+		if (options.length === 0) return [value];
+		// Early records could reference choices by letter without storing option values.
+		const key = value.trim();
+		if (!/^[a-z]$/i.test(key)) return [];
+		const legacy = options[key.toLowerCase().charCodeAt(0) - "a".charCodeAt(0)];
+		return typeof legacy?.label === "string" ? [legacy.label] : [];
 	});
 }
 

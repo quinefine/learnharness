@@ -10,10 +10,22 @@ import { ankiOptionEligible } from "../core/anki-export.ts";
 import type { AnkiSaveInput } from "../core/contracts/anki.ts";
 import { ANKI_TEMPLATE_VERSION, BACK, CSS, FRONT } from "./anki-card-template.ts";
 import { renderAnkiMarkdown } from "./anki-markdown.tsx";
+import { getChat } from "./chats.ts";
 
 export const ANKI_MODEL = "LearnHarness Practice";
 export const ANKI_DECK = "LearnHarness";
 const FIELDS = ["Question", "Options", "Answer", "Solution", "Source", "SourceId", "Mode", "Targets"] as const;
+
+function deckComponent(value: string): string {
+	const cleaned = value.replace(/\s*::+\s*/g, ":").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().replace(/^:+|:+$/g, "").trim();
+	return cleaned || "Untitled session";
+}
+
+export function ankiDeckFor(input: AnkiSaveInput, lookup: (id: string) => { title: string } | null = getChat): string {
+	const chatId = /^learnharness:([A-Za-z0-9_-]+):/.exec(input.sourceId)?.[1];
+	const title = chatId ? lookup(chatId)?.title : undefined;
+	return `${ANKI_DECK}::${deckComponent(title ?? input.source)}`;
+}
 
 export const ankiSaveSchema = z.object({
 	sourceId: z.string().trim().min(3).max(500),
@@ -146,11 +158,11 @@ export async function healthCheck(endpoint = defaultEndpoint()): Promise<boolean
 const modelEnsures = new Map<string, Promise<void>>();
 
 /** Serialize first-time setup per endpoint so concurrent saves cannot create the model twice. */
-async function ensureDeckAndModel(endpoint: string): Promise<void> {
+async function ensureDeckAndModel(endpoint: string, deck: string): Promise<void> {
 	const current = modelEnsures.get(endpoint);
 	if (current) return current;
 	const run = (async () => {
-		await ankiCall("createDeck", { deck: ANKI_DECK }, endpoint);
+		await ankiCall("createDeck", { deck }, endpoint);
 		const names = await ankiCall<string[]>("modelNames", {}, endpoint);
 		if (!names.includes(ANKI_MODEL)) {
 			await ankiCall("createModel", {
@@ -209,7 +221,8 @@ function sourceQuery(sourceId: string): string {
 }
 
 async function saveToAnkiUnlocked(valid: AnkiSaveInput, endpoint: string): Promise<AnkiSaveResult> {
-	await ensureDeckAndModel(endpoint);
+	const deck = ankiDeckFor(valid);
+	await ensureDeckAndModel(endpoint, deck);
 	const fields = noteFields(valid);
 	const existing = await ankiCall<number[]>("findNotes", { query: sourceQuery(valid.sourceId) }, endpoint);
 	const tags = ["learnharness", `kind-${tag(valid.kind)}`, `mode-${tag(valid.mode ?? valid.kind)}`,
@@ -220,16 +233,18 @@ async function saveToAnkiUnlocked(valid: AnkiSaveInput, endpoint: string): Promi
 	if (existing.length === 1) {
 		await ankiCall("updateNoteFields", { note: { id: existing[0], fields } }, endpoint);
 		await ankiCall("updateNoteTags", { note: existing[0], tags }, endpoint);
-		return { noteId: existing[0]!, updated: true, deck: ANKI_DECK, model: ANKI_MODEL };
+		const cards = await ankiCall<number[]>("findCards", { query: sourceQuery(valid.sourceId) }, endpoint);
+		if (cards.length > 0) await ankiCall("changeDeck", { cards, deck }, endpoint);
+		return { noteId: existing[0]!, updated: true, deck, model: ANKI_MODEL };
 	}
 	const noteId = await ankiCall<number>("addNote", {
-		note: { deckName: ANKI_DECK, modelName: ANKI_MODEL, fields, tags,
+		note: { deckName: deck, modelName: ANKI_MODEL, fields, tags,
 			// SourceId, not Anki's content hash, owns deduplication. Two sessions may legitimately
 			// contain the same question text, while a second save of one source must update in place.
 			options: { allowDuplicate: true } },
 	}, endpoint);
 	if (!noteId) throw new AnkiConnectError("Anki refused the note without returning an id");
-	return { noteId, updated: false, deck: ANKI_DECK, model: ANKI_MODEL };
+	return { noteId, updated: false, deck, model: ANKI_MODEL };
 }
 
 const sourceQueues = new Map<string, Promise<AnkiSaveResult>>();

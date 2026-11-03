@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { saveToAnki, healthCheck, noteFields, ankiCall, AnkiConnectError, type AnkiSaveInput } from "../src/server/anki-connect.ts";
+import { saveToAnki, healthCheck, noteFields, ankiCall, ankiDeckFor, AnkiConnectError, type AnkiSaveInput } from "../src/server/anki-connect.ts";
 
 const input: AnkiSaveInput = {
 	sourceId: "learnharness:chat-1:problem-1",
@@ -48,6 +48,12 @@ async function fakeAnki(delayFindMs = 0, existingModel = false, failStyling = fa
 					result = source && notes.has(source) ? [notes.get(source)!.id] : [];
 					break;
 				}
+				case "findCards": {
+					const encoded = String(p.query).match(/^SourceId:"((?:\\.|[^"])*)"$/)?.[1];
+					const source = encoded?.replace(/\\(["\\])/g, "$1");
+					result = source && notes.has(source) ? [notes.get(source)!.id] : [];
+					break;
+				}
 				case "addNote": {
 					const note = p.note as { fields: Record<string, string>; tags: string[] };
 					const id = nextId++;
@@ -67,6 +73,7 @@ async function fakeAnki(delayFindMs = 0, existingModel = false, failStyling = fa
 					if (entry) entry.tags = note.tags;
 					break;
 				}
+				case "changeDeck": result = null; break;
 				case "boom": error = "deliberate failure"; break;
 			}
 			res.writeHead(200, { "Content-Type": "application/json" });
@@ -98,6 +105,11 @@ describe("AnkiConnect save", () => {
 			const add = fake.calls.find((c) => c.action === "addNote")!;
 			assert.equal((add.params.note as { options: { allowDuplicate: boolean } }).options.allowDuplicate, true,
 				"SourceId, not Anki's content hash, owns duplicate detection");
+			assert.equal((add.params.note as { deckName: string }).deckName, "LearnHarness::chat-1");
+			assert.equal(second.deck, "LearnHarness::chat-1");
+			const move = fake.calls.find((call) => call.action === "changeDeck")!;
+			assert.equal(move.params.deck, "LearnHarness::chat-1");
+			assert.deepEqual(move.params.cards, [second.noteId]);
 			for (const call of fake.calls) {
 				assert.equal(call.version, 6);
 				assert.ok(call.params && typeof call.params === "object", `${call.action} uses nested params`);
@@ -105,6 +117,13 @@ describe("AnkiConnect save", () => {
 		} finally {
 			await fake.close();
 		}
+	});
+
+	it("uses chat titles for deck names and sanitizes hierarchy separators", () => {
+		const lookup = (id: string) => id === "chat-1" ? { title: "UML :: Basics\nAdvanced" } : null;
+		assert.equal(ankiDeckFor(input, lookup), "LearnHarness::UML:Basics Advanced");
+		assert.equal(ankiDeckFor({ ...input, sourceId: "learnharness:missing:q" }, lookup), "LearnHarness::chat-1");
+		assert.equal(ankiDeckFor({ ...input, sourceId: "learnharness:missing:q", source: "::" }, lookup), "LearnHarness::Untitled session");
 	});
 
 	it("upgrades an existing note type to the interactive template without adding fields", async () => {

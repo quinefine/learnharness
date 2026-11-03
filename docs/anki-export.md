@@ -8,7 +8,7 @@ Lesson questions and practice problems can be saved selectively to desktop Anki.
 2. AnkiConnect must listen on `http://127.0.0.1:8765`, or set `ANKI_CONNECT_URL` for the LearnHarness server.
 3. Save from a lesson or practice session on the same machine, or from a server that can reach that AnkiConnect address.
 
-The default deck is `LearnHarness`. The note type is `LearnHarness Practice`. The first save creates them if needed. Creating a note type is an Anki schema change, so Anki may require a full sync on the next AnkiWeb sync.
+The root deck is `LearnHarness`; each session exports to `LearnHarness::<session title>`. The note type is `LearnHarness Practice`. The first save creates the deck and note type if needed. Creating a note type is an Anki schema change, so Anki may require a full sync on the next AnkiWeb sync. Re-saving after a session rename moves its cards to the renamed deck without duplicating notes.
 
 ## Auto-save
 
@@ -31,7 +31,7 @@ Authored quiz options are preserved. For concise free-form answers, LearnHarness
 
 One option pick flips the card on desktop and mobile. Multi-select questions flip only after **Check answers**. Front/back option order and selected picks are preserved. The back shows correct and wrong marks. The template has touch targets, dark-mode colors, keyboard support, and a safe answer fallback when scripts do not run.
 
-Card fields use LearnHarness's own Streamdown, code-block, and KaTeX renderer at export time. Anki receives static HTML with bundled KaTeX fonts. Raw HTML stays sanitized, browser-only controls stay hidden, and code blocks scroll horizontally on narrow screens. Links remain native anchors. Remote images become alt text. Mermaid fences retain their source as code.
+Card fields use LearnHarness's server-side Markdown, Shiki code highlighting, and KaTeX renderer at export time. Anki receives static HTML with bundled KaTeX fonts. Raw HTML stays sanitized, browser-only controls stay hidden, and code blocks scroll horizontally on narrow screens. Links remain native anchors. Remote images become alt text. Mermaid fences retain their source as code.
 
 ## Previous questions and practice
 
@@ -48,7 +48,7 @@ The committed solution is never shown by the menu itself. It appears only on the
 
 ## Repeated saves
 
-`SourceId` identifies the saved question. Saving the same lesson question or practice problem again updates the existing note instead of creating a duplicate. Active and retroactive practice saves share the original problem identity. Concurrent saves of one source are serialized, and an update refreshes its fields and tags. Different source IDs may contain the same question text; Anki's content-level duplicate check does not decide identity.
+`SourceId` identifies the saved question. Saving the same lesson question or practice problem again updates the existing note instead of creating a duplicate. Active and retroactive practice saves share the original problem identity. Concurrent saves of one source are serialized, and an update refreshes its fields, tags, and chat deck. Different source IDs may contain the same question text; Anki's content-level duplicate check does not decide identity.
 
 The browser route accepts same-origin JSON requests only. It validates the request `Host` and never trusts spoofable forwarding headers. If a proxy rewrites `Host`, set `ANKI_PUBLIC_ORIGIN` to the deployment's trusted public origin. Native or server callers without an `Origin` header remain supported.
 
